@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>bonk.io — Local</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="editor.css"></head>
+<body data-layout="original">
+<main id="app">
+ <canvas id="arena" aria-label="Game arena"></canvas>
+ <header id="topbar"><span class="avatar-small" id="topAvatar"></span><button class="text-button" id="profileButton">Player 1</button><span class="muted">Local play</span><div class="top-actions"><button id="layoutButton" title="Change layout">Original</button><button id="soundButton" title="Mute/unmute">♪</button><button id="settingsButton" aria-label="Settings">⚙</button></div></header>
+ <section id="menu" class="screen active" aria-label="Main menu">
+  <div class="brand"><h1>bonk<span>.io</span></h1><span class="edition">LOCAL</span></div>
+  <div class="main-buttons"><button class="main-play" data-action="quick">Quick Play</button><button data-action="custom">Custom Game</button><button data-action="editor">Map Editor</button></div>
+  <nav class="menu-nav"><button data-action="news">NEWS</button><button data-action="friends" class="unavailable">FRIENDS</button><button data-action="quick" class="nav-play">PLAY</button><button data-action="skins">SKINS</button><button data-action="tutorial">TUTORIAL</button></nav>
+  <div class="menu-bottom"><span>Physics. Strategy. Bonk.</span><span>2025 reference · local edition</span></div>
+ </section>
+ <section id="lobby" class="screen" aria-label="Local lobby">
+  <div class="window lobby-window"><div class="window-bar"><span>Custom Game</span><button data-action="menu" aria-label="Close lobby">×</button></div><div class="lobby-grid">
+   <div class="lobby-left"><div class="box-heading">Playing</div><div id="playerSetup"></div><label class="line-label">Bots <input id="botCount" type="number" min="0" max="6" value="2"></label><label class="line-label">Rounds to win <input id="rounds" type="number" min="1" max="20" value="3"></label><button id="addPlayer">+ Add second player</button><button id="startButton" class="primary">Start</button></div>
+   <div class="lobby-main"><div class="box-heading">Map</div><canvas id="mapPreview" width="640" height="350" aria-label="Selected map preview"></canvas><div class="map-meta"><strong id="selectedMapName"></strong><span id="selectedMapAuthor"></span></div><div class="map-actions"><button id="chooseMap">Select map…</button><button id="editSelected">Editor</button></div><label class="line-label">Mode <select id="modeSelect"><option value="classic">Classic</option><option value="arrows">Arrows</option><option value="deatharrows">Death Arrows</option><option value="grapple">Grapple</option><option value="vtol">VTOL</option><option value="football">Football</option></select></label><p id="modeDescription" class="mode-description"></p></div>
+  </div><div class="window-foot">Same keyboard · no connection required</div></div>
+ </section>
+ <section id="gameHud" class="screen" aria-label="Match"><div id="scoreboard"></div><div id="roundAnnouncement" aria-live="polite"></div><div class="game-bottom"><div><strong id="gameMapName"></strong><span id="gameMode"></span></div><span id="fps"></span><button id="pauseButton">Pause · Esc</button><button id="leaveButton">Leave</button></div><div id="gameHint"></div></section>
+ <section id="editorScreen" class="screen" aria-label="Map editor"><div id="editorContainer"></div></section>
+ <section id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="window modal-window"><div class="window-bar"><span id="modalTitle"></span><button id="modalClose" aria-label="Close">×</button></div><div id="modalBody"></div></div></section>
+ <div id="toast" role="status"></div>
+</main>
+<script src="vendor/planck.min.js"></script><script src="maps.js"></script><script src="historical-maps.js"></script><script src="core.js"></script><script src="render.js"></script><script src="editor.js"></script><script src="app.js"></script>
+</body></html>
