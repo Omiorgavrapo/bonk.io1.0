@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>bonk.io — Local</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="editor.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>bonk.io — Local + LAN</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="editor.css"><link rel="stylesheet" href="lan.css"></head>
 <body data-layout="original">
 <main id="app">
- <canvas id="arena" aria-label="Game arena"></canvas>
- <header id="topbar"><span class="avatar-small" id="topAvatar"></span><button class="text-button" id="profileButton">Player 1</button><span class="muted">Local play</span><div class="top-actions"><button id="layoutButton" title="Change layout">Original</button><button id="soundButton" title="Mute/unmute">♪</button><button id="settingsButton" aria-label="Settings">⚙</button></div></header>
+ <canvas id="arena" tabindex="0" aria-label="Game arena"></canvas>
+ <header id="topbar"><span class="avatar-small" id="topAvatar"></span><button class="text-button" id="profileButton">Player 1</button><span id="playLabel" class="muted">Local play</span><div class="top-actions"><button id="layoutButton" title="Change layout">Original</button><button id="soundButton" title="Mute/unmute">♪</button><button id="settingsButton" aria-label="Settings">⚙</button></div></header>
  <section id="menu" class="screen active" aria-label="Main menu">
   <div class="brand"><h1>bonk<span>.io</span></h1><span class="edition">LOCAL</span></div>
-  <div class="main-buttons"><button class="main-play" data-action="quick">Quick Play</button><button data-action="custom">Custom Game</button><button data-action="editor">Map Editor</button></div>
+  <div class="main-buttons"><button class="main-play" data-action="quick">Quick Play</button><button data-action="custom">Custom Game</button><button data-action="lan-host">Criar sala LAN</button><button data-action="lan-join">Entrar sala LAN</button><button data-action="editor">Map Editor</button></div>
   <nav class="menu-nav"><button data-action="news">NEWS</button><button data-action="friends" class="unavailable">FRIENDS</button><button data-action="quick" class="nav-play">PLAY</button><button data-action="skins">SKINS</button><button data-action="tutorial">TUTORIAL</button></nav>
   <div class="menu-bottom"><span>Physics. Strategy. Bonk.</span><span>2025 reference · local edition</span></div>
  </section>
@@ -16,10 +16,21 @@
    <div class="lobby-main"><div class="box-heading">Map</div><canvas id="mapPreview" width="640" height="350" aria-label="Selected map preview"></canvas><div class="map-meta"><strong id="selectedMapName"></strong><span id="selectedMapAuthor"></span></div><div class="map-actions"><button id="chooseMap">Select map…</button><button id="editSelected">Editor</button></div><label class="line-label">Mode <select id="modeSelect"><option value="classic">Classic</option><option value="arrows">Arrows</option><option value="deatharrows">Death Arrows</option><option value="grapple">Grapple</option><option value="vtol">VTOL</option><option value="football">Football</option></select></label><p id="modeDescription" class="mode-description"></p></div>
   </div><div class="window-foot">Same keyboard · no connection required</div></div>
  </section>
+ <section id="lanLobby" class="screen" aria-label="Sala LAN">
+  <div class="window lan-window"><div class="window-bar"><span>Sala LAN · mesma rede</span><button id="lanEnd">Sair</button></div><div class="lan-content">
+   <p class="notice">Abra este HTML em cada computador na mesma rede. Cada convite conecta uma pessoa. O dono mantém a aba aberta e visível. Clique no código para selecionar e copiar.</p>
+   <div class="lan-config"><label>Vagas humanas <input id="lanHumans" type="number" min="1" max="5" value="3"></label><label>Bots <input id="lanBots" type="number" min="0" max="4" value="2"></label><label>Vitórias <input id="lanRounds" type="number" min="1" max="20" value="3"></label><label>Mapa / modo <select id="lanMap"></select></label></div>
+   <p id="lanSummary"></p><ul id="lanPlayers" class="lan-players"></ul>
+   <div id="lanHost" class="lan-pair"><div><button id="lanInvite">Gerar convite</button><label for="lanOffer">1. Entregue o convite a um jogador</label><textarea id="lanOffer" readonly spellcheck="false" aria-label="Convite LAN"></textarea></div><div><label for="lanAnswerInput">2. Cole a resposta dele</label><textarea id="lanAnswerInput" spellcheck="false" maxlength="100000" aria-label="Resposta do jogador"></textarea><button id="lanAccept">Confirmar resposta</button></div></div>
+   <div id="lanGuest" class="lan-pair" hidden><div><label for="lanOfferInput">1. Cole o convite do dono</label><textarea id="lanOfferInput" spellcheck="false" maxlength="100000" aria-label="Convite do dono"></textarea><button id="lanJoin">Gerar resposta</button></div><div><label for="lanAnswer">2. Devolva esta resposta ao dono</label><textarea id="lanAnswer" readonly spellcheck="false" aria-label="Sua resposta LAN"></textarea></div></div>
+   <p id="lanStatus" role="status"></p><div class="dialog-actions"><button id="lanReturn" hidden>Voltar à partida</button><button id="lanStart" class="primary">Iniciar partida</button></div>
+   <p class="lan-footnote">Humanos + bots: até 5. Novos jogadores assistem à partida atual. Os mapas são escolhidos pelo dono. Wi-Fi de visitantes pode bloquear a conexão.</p>
+  </div></div>
+ </section>
  <section id="gameHud" class="screen" aria-label="Match"><div id="scoreboard"></div><div id="roundAnnouncement" aria-live="polite"></div><div class="game-bottom"><div><strong id="gameMapName"></strong><span id="gameMode"></span></div><span id="fps"></span><button id="pauseButton">Pause · Esc</button><button id="leaveButton">Leave</button></div><div id="gameHint"></div></section>
  <section id="editorScreen" class="screen" aria-label="Map editor"><div id="editorContainer"></div></section>
  <section id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="window modal-window"><div class="window-bar"><span id="modalTitle"></span><button id="modalClose" aria-label="Close">×</button></div><div id="modalBody"></div></div></section>
  <div id="toast" role="status"></div>
 </main>
-<script src="vendor/planck.min.js"></script><script src="maps.js"></script><script src="historical-maps.js"></script><script src="core.js"></script><script src="render.js"></script><script src="editor.js"></script><script src="app.js"></script>
+<script src="vendor/planck.min.js"></script><script src="maps.js"></script><script src="historical-maps.js"></script><script src="core.js"></script><script src="render.js"></script><script src="editor.js"></script><script src="lan.js"></script><script src="lan-room.js"></script><script src="app.js"></script>
 </body></html>

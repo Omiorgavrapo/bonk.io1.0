@@ -116,7 +116,16 @@ const rematch = Core.create(footballMap, { ...one, roundsToWin: 1, players: [{ i
 rematch.restore(copy(football.snapshot()));
 assert.deepEqual(rematch.state(), football.state(), 'new match checkpoint must reset all scores');
 assert.equal(rematch.state().teamScores[1], 0);
-assert.throws(() => Core.create(map(), { players: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }), /two humans/);
+const lanRoster = Array.from({ length: 5 }, (_, i) => ({ id: 'p' + (i + 1), team: i % 2 + 1 }));
+for (const mode of Core.MODES) {
+  const game = Core.create(map(mode), { ...one, players: lanRoster });
+  for (let t = 0; t < 600; t++) {
+    game.step(Object.fromEntries(lanRoster.map((p, i) => [p.id, { right: (t + i * 30) % 120 < 60, left: (t + i * 30) % 120 >= 60, up: t % 80 < 10, special: t % 100 < 75, heavy: t % 90 < 10 }])));
+    assert.equal(game.state().players.length, 5, mode + ': five human participants');
+    assert(game.state().players.every(p => Number.isFinite(p.x) && Number.isFinite(p.y)), mode + ': finite state with five humans');
+  }
+}
+assert.throws(() => Core.create(map(), { players: Array.from({ length: 9 }, (_, i) => ({ id: 'p' + i })) }), /eight players/);
 assert.throws(() => Core.create(map(), { players: Array.from({ length: 7 }, (_, i) => ({ id: 'b' + i, bot: true })) }), /six bots/);
 
 // Concave map geometry and a motor joint must remain stable.
@@ -137,7 +146,7 @@ for (const mode of Core.MODES) {
   if (mode === 'grapple') assert(seen.has('grapple'), mode + ': bots use grapple');
   if (mode === 'football') assert(seen.has('kick'), mode + ': bots kick football');
 }
-console.log('PASS: floor/CCD, heavy control, jump, six modes, bots, 8 participants, scoring, map geometry/joints and exact same-runtime snapshot/replay.');
+console.log('PASS: floor/CCD, heavy control, jump, six modes, bots, 8 participants, five LAN humans, scoring, map geometry/joints and exact same-runtime snapshot/replay.');
 console.log('Desktop Node simulation benchmark (including state snapshots): 10,800 ticks / ' + ((performance.now() - start) / 1000).toFixed(2) + ' s. This is not a Chromebook measurement.');
 
 // Editor logic runs without a DOM; actual clicks/layout still need browser QA.

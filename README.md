@@ -1,4 +1,4 @@
-# Bonk Local
+# Bonk Local + LAN
 
 Jogo local em HTML, CSS e JavaScript, com o Bonk.io de 2025 como referência. **A fidelidade 1:1 visual e física ainda não foi comprovada.** As diferenças e os limites dos testes estão em `VERIFICACAO.md` e `REFERENCIAS.md`.
 
@@ -8,7 +8,9 @@ Jogo local em HTML, CSS e JavaScript, com o Bonk.io de 2025 como referência. **
 2. Abra `index.html` no Chrome. A distribuição usa scripts clássicos e recursos locais; não exige instalação, build, CDN ou servidor para o modo local.
 3. Escolha **Quick Play** ou **Custom Game**, configure os participantes e pressione **Start**.
 
-Até dois humanos no mesmo teclado, além de zero a seis bots. Há dois bots por padrão. Bots usam os mesmos comandos e a mesma física dos humanos. Contas, amigos e salas online não estão implementados nesta entrega.
+No modo local, até dois humanos no mesmo teclado, além de zero a seis bots. Há dois bots por padrão. Bots usam os mesmos comandos e a mesma física dos humanos.
+
+**LAN:** computadores na mesma rede podem jogar abrindo o arquivo HTML, sem servidor, nuvem ou instalação. O dono escolhe até cinco vagas no total, divididas entre humanos e bots; cada navegador controla um humano. Use **Criar sala LAN** ou **Entrar sala LAN** e troque um convite e uma resposta por jogador. Veja o passo a passo em [LAN.md](LAN.md). Contas, amigos, chat, descoberta automática de salas e acesso entre redes pela internet ficam para outra etapa.
 
 ## Controles
 
@@ -55,14 +57,18 @@ Quem joga não precisa de Node. Para continuar o projeto, com Node instalado, ex
 node check-core.cjs
 ```
 
-A checagem usa somente a biblioteca de física incluída e `assert` do Node: seis modos, comandos de bots, oito participantes, rodadas, placar, pesado, colisões contínuas, geometria/juntas, estado reproduzível e editor lógico. Também valida todos os 26 mapas e sua preservação em JSON. Os resultados e as verificações ainda pendentes estão em `VERIFICACAO.md`.
+A checagem usa somente a biblioteca de física incluída e `assert` do Node: seis modos, cinco humanos, comandos de bots, oito participantes locais, rodadas, placar, pesado, colisões contínuas, geometria/juntas, estado reproduzível e editor lógico. Também valida todos os 26 mapas e sua preservação em JSON. `node check-lan.cjs` verifica o transporte e `node check-room.cjs` verifica a sala com ligações simuladas. `check-browser.cjs` é uma checagem opcional com Chrome e Playwright, que precisam estar disponíveis no ambiente de desenvolvimento. Quem joga só precisa extrair o ZIP e abrir o HTML.
 
-## Futuro online
+## LAN e futuro pela internet
+
+`lan.js` usa um canal WebRTC confiável, com sinalização manual por códigos e sem servidores ICE/STUN/TURN. `lan-room.js` executa a física no navegador do anfitrião; os convidados enviam comandos e recebem estados para renderizar. O anfitrião escolhe os mapas; convidados não publicam. Entradas tardias assistem até a próxima partida. A perda de um participante da partida a encerra e devolve os restantes à sala; uma nova conexão exige novo convite. Sair da sala do anfitrião a encerra para todos. Esc abre a sala, sem pausar a física. O anfitrião deve manter a aba visível.
+
+Há testes reais com duas sessões de Chrome neste PC, abrindo por `file://`, sem requisições externas. Isso não substitui um teste com dois aparelhos na sua rede. Wi-Fi de convidados, isolamento de clientes, firewall e políticas de navegador podem impedir WebRTC local.
 
 `core.js` funciona como script do navegador ou módulo CommonJS, sem DOM, Canvas, áudio ou relógio de parede. `BonkCore.create(map, {players, seed, roundsToWin})` devolve `step(inputs)`, `state()`, `snapshot()`, `restore(snapshot)` e `restartRound()`; inputs são comandos booleanos por ID de jogador e tick.
 
-Um servidor JavaScript futuro deverá validar os comandos, executar esse núcleo a 60 ticks/s e enviar estados ao cliente. Snapshots versão 2 guardam o checkpoint da rodada e os comandos seguintes; restaurar reproduz a rodada para preservar o estado interno da engine. A repetibilidade foi testada no mesmo runtime, sem garantia entre plataformas. Transporte, sincronização e servidor ainda precisam ser implementados.
+Para uma futura versão pública pela internet, um servidor JavaScript pode executar esse núcleo a 60 ticks/s. Outro caminho é um serviço de nuvem para salas/mapas e conexão entre navegadores. Esta entrega implementa apenas a LAN. Snapshots versão 2 guardam o checkpoint da rodada e os comandos seguintes; restaurar reproduz a rodada para preservar o estado interno da engine. A repetibilidade foi testada no mesmo runtime, sem garantia entre plataformas.
 
-O cliente poderá continuar sendo `index.html`. WebSocket exigirá um servidor separado, hospedado ou em outro computador; em LAN, servir este cliente por HTTP é uma possibilidade a verificar. A conexão de um cliente `file://` dependerá das regras do Chrome escolhido.
+O cliente continua sendo `index.html`. A biblioteca pública pela internet, com publicação só pelo proprietário, fica para a etapa com um serviço compartilhado. Mapas da sala LAN são enviados pelo anfitrião e o editor mantém seu armazenamento e exportação locais.
 
 Biblioteca de física e fontes têm suas licenças incluídas; consulte `LICENCAS.md`.

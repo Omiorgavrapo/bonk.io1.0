@@ -62,7 +62,7 @@
     if (MODES.indexOf(mode) < 0) throw new Error('Unsupported mode: ' + mode);
     map.mode = mode;
     var roster = opts.players || [{ id: 'p1', name: 'Player 1', color: '#ff3030', team: 1 }];
-    if (!roster.length || roster.length > 8 || roster.filter(function (p) { return !p.bot; }).length > 2 || roster.filter(function (p) { return p.bot; }).length > 6) throw new Error('Use at most two humans and six bots.');
+    if (!roster.length || roster.length > 8 || roster.filter(function (p) { return p.bot; }).length > 6) throw new Error('Use at most eight players and six bots.');
     var ids = {};
     roster = roster.map(function (p, i) {
       if (!p.id || ids[p.id]) throw new Error('Player IDs must be unique.');
