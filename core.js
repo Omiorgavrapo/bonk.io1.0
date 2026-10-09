@@ -21,6 +21,22 @@
     countdownTicks: 120, roundOverTicks: 150, roundTimeTicks: 10800
   });
   var MODES = Object.freeze(['classic', 'arrows', 'deatharrows', 'grapple', 'vtol', 'football']);
+  var RULES = Object.freeze({
+    gravity: Object.freeze({ label: 'Gravidade', min: -3, max: 3, step: .1, value: 1, unit: '×', hint: '1× usa a gravidade do mapa. 0 flutua; negativo inverte.' }),
+    playerSize: Object.freeze({ label: 'Tamanho dos jogadores', min: .5, max: 2, step: .1, value: 1, unit: '×', hint: 'Muda a bolinha e sua colisão. A bola do Football mantém o tamanho.' }),
+    shotSpeed: Object.freeze({ label: 'Velocidade do tiro', min: .25, max: 3, step: .05, value: 1, unit: '×', hint: 'Multiplica a velocidade das flechas em Arrows e Death Arrows.' }),
+    shotLifetime: Object.freeze({ label: 'Tempo de vida do tiro', min: .2, max: 15, step: .1, value: 5, unit: 's', hint: 'Tempo máximo antes de a flecha desaparecer, se não colidir.' })
+  });
+  function normalizeRules(raw) {
+    if (raw === undefined) raw = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(function (key) { return !Object.prototype.hasOwnProperty.call(RULES, key); })) throw Error('Regras de partida inválidas.');
+    var result = {};
+    Object.keys(RULES).forEach(function (key) { var def = RULES[key], value = raw[key] === undefined ? def.value : raw[key];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < def.min || value > def.max) throw Error(def.label + ': escolha de ' + def.min + ' a ' + def.max + def.unit + '.');
+      result[key] = value;
+    });
+    return result;
+  }
   var keys = ['left', 'right', 'up', 'down', 'heavy', 'special'];
   var V = pl.Vec2, scale = PARAMS.ppm, dt = PARAMS.dt;
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -76,6 +92,8 @@
     opts.roundsToWin = clamp(Math.floor(number(opts.roundsToWin, 3)), 1, 20);
     opts.countdownTicks = clamp(Math.floor(number(opts.countdownTicks, PARAMS.countdownTicks)), 0, 600);
     opts.roundTimeTicks = clamp(Math.floor(number(opts.roundTimeTicks, PARAMS.roundTimeTicks)), 1, 216000);
+    opts.rules = normalizeRules(opts.rules);
+    var radius = PARAMS.radius * opts.rules.playerSize;
     var rng = opts.seed || 1, world, mapBodies, players, playerById, arrows, ball;
     var tick = 0, round = 1, phase, timer, roundTicks, winner = null, matchWinner = null;
     var events = [], pending = [], scores = {}, teamScores = { 1: 0, 2: 0 }, history = [], replayBase, arrowId = 0;
@@ -87,7 +105,7 @@
       return body.createFixture(shape, Object.assign({ density: number(def.density, 1), friction: number(def.friction, .3), restitution: number(def.restitution, .2), isSensor: !!def.sensor }, def.filter || {}));
     }
     function build() {
-      world = new pl.World(V(0, PARAMS.gravity * number(map.gravity, 1)));
+      world = new pl.World(V(0, PARAMS.gravity * number(map.gravity, 1) * opts.rules.gravity));
       world.setContinuousPhysics(true);
       mapBodies = {}; arrows = []; playerById = {}; pending = []; ball = null;
       (map.bodies || []).forEach(function (def, index) {
@@ -120,8 +138,8 @@
         if (mode !== 'football') { si = index; s = eligible.length ? eligible[si % eligible.length] : s; }
         usedSpawns[def.team] = si + 1;
         var extra = Math.floor(si / Math.max(1, eligible.length));
-        var body = world.createDynamicBody({ position: V((s.x + extra * PARAMS.radius * 2.2) / scale, s.y / scale), fixedRotation: mode !== 'vtol', bullet: true, linearDamping: PARAMS.linearDamping, angularDamping: mode === 'vtol' ? PARAMS.vtolAngularDamping : .3 });
-        var fixture = body.createFixture(pl.Circle(PARAMS.radius / scale), { density: PARAMS.density, friction: PARAMS.friction, restitution: PARAMS.restitution, filterGroupIndex: -(index + 1) });
+        var body = world.createDynamicBody({ position: V((s.x + extra * radius * 2.2) / scale, s.y / scale), fixedRotation: mode !== 'vtol', bullet: true, linearDamping: PARAMS.linearDamping, angularDamping: mode === 'vtol' ? PARAMS.vtolAngularDamping : .3 });
+        var fixture = body.createFixture(pl.Circle(radius / scale), { density: PARAMS.density, friction: PARAMS.friction, restitution: PARAMS.restitution, filterGroupIndex: -(index + 1) });
         var p = Object.assign({}, def, { body: body, fixture: fixture, index: index, alive: true, heavy: false, heavyStrength: 1, aim: index % 2 ? Math.PI : 0, charge: 0, cooldown: 0, jumpCooldown: 0, kickCooldown: 0, grappleCooldown: 0, grapple: null, prev: decode(0), botInput: decode(0), botUntil: 0, botChargeTicks: 0, captures: {} });
         body.setUserData({ kind: 'player', id: p.id }); playerById[p.id] = p; return p;
       });
@@ -188,7 +206,7 @@
         });
       }
       if (!best) return;
-      var length = Math.max(PARAMS.radius / scale * 1.2, V.distance(start, best.point));
+      var length = Math.max(radius / scale * 1.2, V.distance(start, best.point));
       var joint = world.createJoint(pl.RopeJoint({ localAnchorA: V(0, 0), localAnchorB: best.body.getLocalPoint(best.point), maxLength: length, collideConnected: true }, p.body, best.body));
       p.grapple = { body: best.body, local: best.body.getLocalPoint(best.point), joint: joint };
       emit('grapple', { id: p.id, x: best.point.x * scale, y: best.point.y * scale });
@@ -196,9 +214,9 @@
     function fire(p) {
       if (p.cooldown || p.charge < .02) { p.charge = 0; return; }
       var d = V(Math.cos(p.aim), Math.sin(p.aim)), pos = p.body.getPosition(), charge = p.charge;
-      var body = world.createDynamicBody({ position: V(pos.x + d.x * (PARAMS.radius + 20) / scale, pos.y + d.y * (PARAMS.radius + 20) / scale), angle: p.aim, bullet: true, gravityScale: .22 });
+      var body = world.createDynamicBody({ position: V(pos.x + d.x * (radius + 20) / scale, pos.y + d.y * (radius + 20) / scale), angle: p.aim, bullet: true, gravityScale: .22 });
       body.createFixture(pl.Box(.52, .055), { density: .75, friction: .1, restitution: 0, filterGroupIndex: -(p.index + 1) });
-      var id = 'arrow' + (++arrowId), speed = PARAMS.arrowMinSpeed + charge * (PARAMS.arrowMaxSpeed - PARAMS.arrowMinSpeed), velocity = p.body.getLinearVelocity();
+      var id = 'arrow' + (++arrowId), speed = (PARAMS.arrowMinSpeed + charge * (PARAMS.arrowMaxSpeed - PARAMS.arrowMinSpeed)) * opts.rules.shotSpeed, velocity = p.body.getLinearVelocity();
       body.setLinearVelocity(V(d.x * speed + velocity.x, d.y * speed + velocity.y)); body.setUserData({ kind: 'arrow', id: id, owner: p.id });
       arrows.push({ id: id, body: body, owner: p.id, age: 0, charge: charge });
       p.cooldown = PARAMS.arrowCooldown; p.charge = 0;
@@ -223,13 +241,10 @@
       var density = PARAMS.density * (p.heavy ? 1 + (PARAMS.heavyMass - 1) * (.2 + .8 * p.heavyStrength) : 1);
       if (Math.abs(p.fixture.getDensity() - density) > .001) { p.fixture.setDensity(density); p.body.resetMassData(); }
       if (mode === 'arrows' || mode === 'deatharrows') {
-        if (aiming && !p.cooldown) {
-          var dx = (i.right ? 1 : 0) - (i.left ? 1 : 0), dy = (i.down ? 1 : 0) - (i.up ? 1 : 0);
-          if (dx || dy) {
-            var target = Math.atan2(dy, dx), delta = angleDifference(target, p.aim);
-            p.aim += clamp(delta, -.075, .075);
-          }
-          p.charge = clamp(p.charge + 1 / PARAMS.arrowChargeTicks, 0, 1);
+        if (aiming) {
+          p.aim += ((i.right ? 1 : 0) - (i.left ? 1 : 0)) * .075;
+          p.aim = Math.atan2(Math.sin(p.aim), Math.cos(p.aim));
+          if (!p.cooldown) p.charge = clamp(p.charge + 1 / PARAMS.arrowChargeTicks, 0, 1);
         } else if (!i.special && p.prev.special) fire(p);
       }
       if (mode === 'grapple') {
@@ -238,7 +253,7 @@
       }
       var body = p.body, mass = body.getMass(), heavyFactor = p.heavy ? PARAMS.heavyControl : 1, onGround = grounded(p);
       if (mode === 'vtol') {
-        var thrust = PARAMS.vtolAccel * mass * heavyFactor, offset = PARAMS.radius / scale * PARAMS.vtolWingOffset;
+        var thrust = PARAMS.vtolAccel * mass * heavyFactor, offset = radius / scale * PARAMS.vtolWingOffset;
         var left = !p.heavy && !!i.right, right = !p.heavy && !!i.left;
         if (i.up || (i.left && i.right)) left = right = true;
         function jet(x, direction) { body.applyForce(body.getWorldVector(V(0, direction * thrust)), body.getWorldPoint(V(x, .18)), true); }
@@ -246,7 +261,7 @@
         else { if (left) jet(-offset, -1); if (right) jet(offset, -1); }
       } else if (!aiming) {
         var x = (i.right ? 1 : 0) - (i.left ? 1 : 0), y = (i.down ? PARAMS.downAccel : 0) - (i.up ? PARAMS.airUpAccel : 0);
-        body.applyForceToCenter(V(x * PARAMS.moveAccel * (onGround ? 1 : PARAMS.airControl) * heavyFactor * PARAMS.density * Math.PI * Math.pow(PARAMS.radius / scale, 2), y * mass * heavyFactor), true);
+        body.applyForceToCenter(V(x * PARAMS.moveAccel * (onGround ? 1 : PARAMS.airControl) * heavyFactor * PARAMS.density * Math.PI * Math.pow(radius / scale, 2), y * mass * heavyFactor), true);
       }
       if (!aiming && i.up && onGround && !p.jumpCooldown && !p.heavy) {
         var velocity = body.getLinearVelocity();
@@ -277,7 +292,7 @@
       if (!target) target = { x: number(map.width, 1000) / 2, y: number(map.height, 700) / 2 };
       var i = decode(0), dx = target.x - pos.x, dy = target.y - pos.y;
       i.left = dx < -12; i.right = dx > 12;
-      var danger = false, ahead = V((pos.x + Math.sign(dx || 1) * 55) / scale, (pos.y + PARAMS.radius + 2) / scale), support = false;
+      var danger = false, ahead = V((pos.x + Math.sign(dx || 1) * 55) / scale, (pos.y + radius + 2) / scale), support = false;
       world.rayCast(ahead, V(ahead.x, ahead.y + 3.5), function (f) { if (fixtureInfo(f).kind === 'map' && !f.isSensor() && !fixtureInfo(f).lethal) support = true; return 0; });
       danger = !support && grounded(p);
       i.up = danger || (dy < -45 && random() < .7) || (distance < 70 && random() < .2);
@@ -288,7 +303,7 @@
           if (p.charge > .3 && Math.abs(angleDifference(Math.atan2(dy, dx), p.aim)) < .3) i.special = p.charge < .8 && random() > .35;
           else i.special = p.charge < 1;
         } else i.special = !p.cooldown && distance > 45 && random() < .7;
-        if (i.special) { i.left = dx < -8; i.right = dx > 8; i.up = dy < -25; i.down = dy > 25; i.heavy = false; }
+        if (i.special) { var turn = angleDifference(Math.atan2(dy, dx), p.aim); i.left = turn < -.05; i.right = turn > .05; i.up = i.down = false; i.heavy = false; }
       }
       if (mode === 'grapple') i.special = (Math.floor(tick / 90) + p.index) % 3 !== 2;
       if (mode === 'vtol') {
@@ -334,7 +349,7 @@
             var p = playerById[event.other.id];
             if (p && p.alive) {
               if (mode === 'deatharrows') eliminate(p, 'arrow');
-              else { var v = arrow.body.getLinearVelocity(), len = Math.max(.01, v.length()), baseMass = PARAMS.density * Math.PI * Math.pow(PARAMS.radius / scale, 2); p.body.applyLinearImpulse(V(v.x / len * PARAMS.arrowKnock * (.35 + .65 * arrow.charge) * baseMass, v.y / len * PARAMS.arrowKnock * (.35 + .65 * arrow.charge) * baseMass), p.body.getWorldCenter(), true); breakGrapple(p); }
+              else { var v = arrow.body.getLinearVelocity(), len = Math.max(.01, v.length()), baseMass = PARAMS.density * Math.PI * Math.pow(radius / scale, 2); p.body.applyLinearImpulse(V(v.x / len * PARAMS.arrowKnock * (.35 + .65 * arrow.charge) * baseMass, v.y / len * PARAMS.arrowKnock * (.35 + .65 * arrow.charge) * baseMass), p.body.getWorldCenter(), true); breakGrapple(p); }
               var at = pixels(p.body.getPosition()); emit('hit', { id: p.id, owner: arrow.owner, x: at.x, y: at.y, intensity: 1 });
             }
           }
@@ -343,7 +358,7 @@
       arrows = arrows.filter(function (a) {
         a.age++;
         var at = pixels(a.body.getPosition()), v = a.body.getLinearVelocity();
-        if (hitArrows[a.id] || a.age > PARAMS.arrowLifetime || at.y > map.height + 200 || at.x < -300 || at.x > map.width + 300) { world.destroyBody(a.body); return false; }
+        if (hitArrows[a.id] || a.age >= Math.ceil(opts.rules.shotLifetime / dt) || at.y > map.height + 200 || at.x < -300 || at.x > map.width + 300) { world.destroyBody(a.body); return false; }
         if (v.length() > .1) a.body.setAngle(Math.atan2(v.y, v.x));
         return true;
       });
@@ -366,9 +381,9 @@
       if (roundTicks >= number(opts.roundTimeTicks, PARAMS.roundTimeTicks)) finish(null);
     }
     function state() {
-      return { tick: tick, phase: phase, countdown: phase === 'countdown' ? Math.ceil(timer * dt) : 0, mode: mode, map: map, round: round, winner: winner, matchWinner: matchWinner,
+      return { tick: tick, phase: phase, countdown: phase === 'countdown' ? Math.ceil(timer * dt) : 0, mode: mode, map: map, rules: clone(opts.rules), round: round, winner: winner, matchWinner: matchWinner,
         timeRemaining: Math.ceil(Math.max(0, number(opts.roundTimeTicks, PARAMS.roundTimeTicks) - roundTicks) * dt),
-        players: players.map(function (p) { var pos = pixels(p.body.getPosition()), g = p.grapple && pixels(p.grapple.body.getWorldPoint(p.grapple.local)); return { id: p.id, name: p.name, color: p.color, skin: p.skin, team: p.team, bot: p.bot, alive: p.alive, x: pos.x, y: pos.y, angle: p.body.getAngle() * 180 / Math.PI, radius: PARAMS.radius, heavy: p.heavy, heavyStrength: p.heavyStrength, aim: p.aim, charge: p.charge, cooldown: p.cooldown / PARAMS.arrowCooldown, grapple: g, controls: clone(p.prev) }; }),
+        players: players.map(function (p) { var pos = pixels(p.body.getPosition()), g = p.grapple && pixels(p.grapple.body.getWorldPoint(p.grapple.local)); return { id: p.id, name: p.name, color: p.color, skin: p.skin, team: p.team, bot: p.bot, alive: p.alive, x: pos.x, y: pos.y, angle: p.body.getAngle() * 180 / Math.PI, radius: radius, heavy: p.heavy, heavyStrength: p.heavyStrength, aim: p.aim, charge: p.charge, cooldown: p.cooldown / PARAMS.arrowCooldown, grapple: g, controls: clone(p.prev) }; }),
         bodies: map.bodies.map(function (b, i) { var body = mapBodies[b.id || 'body' + i]; if (!body) return clone(b); var pos = pixels(body.getPosition()); return Object.assign({}, b, pos, { angle: body.getAngle() * 180 / Math.PI }); }),
         projectiles: arrows.map(function (a) { var pos = pixels(a.body.getPosition()); return { id: a.id, x: pos.x, y: pos.y, angle: a.body.getAngle(), length: 31, owner: a.owner }; }),
         ball: ball ? Object.assign(pixels(ball.getPosition()), { r: PARAMS.ballRadius, angle: ball.getAngle() * 180 / Math.PI }) : null, scores: clone(scores), teamScores: clone(teamScores), events: clone(events) };
@@ -414,5 +429,5 @@
     build();
     return { step: step, state: state, snapshot: snapshot, restore: restore, restartRound: restartRound };
   }
-  return { PARAMS: PARAMS, MODES: MODES, create: create };
+  return { PARAMS: PARAMS, MODES: MODES, RULES: RULES, normalizeRules: normalizeRules, create: create };
 }));

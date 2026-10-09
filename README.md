@@ -1,4 +1,4 @@
-# Bonk Local + LAN
+# Bonk Local + Online
 
 Jogo local em HTML, CSS e JavaScript, com o Bonk.io de 2025 como referência. **A fidelidade 1:1 visual e física ainda não foi comprovada.** As diferenças e os limites dos testes estão em `VERIFICACAO.md` e `REFERENCIAS.md`.
 
@@ -6,11 +6,24 @@ Jogo local em HTML, CSS e JavaScript, com o Bonk.io de 2025 como referência. **
 
 1. Extraia **todo** o ZIP, mantendo as pastas `vendor` e `assets` junto aos demais arquivos.
 2. Abra `index.html` no Chrome. A distribuição usa scripts clássicos e recursos locais; não exige instalação, build, CDN ou servidor para o modo local.
-3. Escolha **Quick Play** ou **Custom Game**, configure os participantes e pressione **Start**.
+3. Escolha **Jogar local** ou **Criar partida**, configure os participantes e pressione **Iniciar partida**.
 
 No modo local, até dois humanos no mesmo teclado, além de zero a seis bots. Há dois bots por padrão. Bots usam os mesmos comandos e a mesma física dos humanos.
 
-**LAN:** computadores na mesma rede podem jogar abrindo o arquivo HTML, sem servidor, nuvem ou instalação. O dono escolhe até cinco vagas no total, divididas entre humanos e bots; cada navegador controla um humano. Use **Criar sala LAN** ou **Entrar sala LAN** e troque um convite e uma resposta por jogador. Veja o passo a passo em [LAN.md](LAN.md). Contas, amigos, chat, descoberta automática de salas e acesso entre redes pela internet ficam para outra etapa.
+**Online com PIN:** computadores em redes diferentes podem jogar abrindo o arquivo HTML. O dono escolhe até cinco vagas no total, divididas entre humanos e bots; cada navegador controla um humano. O convite é um **PIN de 8 dígitos**, válido por cinco minutos para uma pessoa; a resposta é automática. Este pacote já tem a configuração do projeto Firebase do proprietário. Todos recebem a mesma pasta. O banco transmite os convites e a partida por HTTPS; não depende de WebRTC nem de uma rede local compartilhada. Veja [ONLINE.md](ONLINE.md). As regras atualizadas precisam estar publicadas. Chat, amigos e biblioteca pública de mapas ficam para outra etapa.
+
+## Regras da partida
+
+Nas telas de criação local e online, o painel **Regras da partida** permite ajustar:
+
+| Opção | Intervalo | Padrão |
+|---|---|---|
+| Gravidade | −3× a 3× da gravidade do mapa; 0 flutua | 1× |
+| Tamanho dos jogadores | 0,5× a 2×; altera também a colisão | 1× |
+| Velocidade do tiro | 0,25× a 3× | 1× |
+| Tempo de vida do tiro | 0,2 a 15 segundos; uma colisão pode encerrá-lo antes | 5 s |
+
+Velocidade e tempo de vida afetam Arrows e Death Arrows. O tamanho não altera a bola do Football. **Restaurar padrão** desfaz os ajustes. No local, as regras ficam salvas neste navegador; no online, o dono escolhe antes de iniciar e todos recebem os mesmos valores. Durante a partida online, os ajustes ficam bloqueados.
 
 ## Controles
 
@@ -21,22 +34,24 @@ No modo local, até dois humanos no mesmo teclado, além de zero a seis bots. H�
 | Especial | Z | G |
 | Pausar / continuar | Esc | Esc |
 
-É possível remapear as teclas em **Settings**, sem duplicar comandos. O teclado físico pode limitar a quantidade de teclas simultâneas; escolha outra combinação caso alguma deixe de responder. Clique fora de um campo de texto antes de controlar o jogador.
+É possível remapear as teclas em **Configurações** (⚙), sem duplicar comandos. O teclado físico pode limitar a quantidade de teclas simultâneas; escolha outra combinação caso alguma deixe de responder. Clique fora de um campo de texto antes de controlar o jogador; Esc fecha uma janela e devolve o foco à arena.
 
 ## Modos e aparência
 
 | Modo | Mecânica desta implementação |
 |---|---|
 | Classic | Movimento, contato com plataformas, pesado e eliminação ao sair da arena. Último sobrevivente vence. |
-| Arrows | Segure Especial, mire com as direções e solte para disparar; mirar bloqueia movimento. Flechas empurram. |
+| Arrows | Segure Especial, gire a mira continuamente com esquerda/direita e solte para disparar; mirar bloqueia movimento. Flechas empurram. |
 | Death Arrows | O disparo funciona como em Arrows; acertar uma flecha elimina. |
 | Grapple | Segure Especial para prender o gancho a uma superfície próxima; solte para liberar. Contato de um oponente pode soltá-lo. |
 | VTOL | Propulsores direcionais, rotação, colisões e pesado. |
 | Football | Dois times, bola e gols; Pesado funciona como chute. O placar de cada integrante mostra os pontos do time. |
 
-O botão **Original / Adapted** e a opção Layout em Settings mudam a disposição da interface durante a mesma partida. A simulação usa passos fixos de 1/60 s e coordenadas independentes da tela. **Original é uma reconstrução da referência**, sem comprovação pixel a pixel.
+O botão **Original / Adapted** e a opção Layout em Configurações mudam a disposição da interface durante a mesma partida. A simulação usa passos fixos de 1/60 s e coordenadas independentes da tela. **Original é uma reconstrução da referência**, sem comprovação pixel a pixel.
 
-Cinco skins básicas e cor configurável por humano. Áudio sintetizado localmente, com volume/mudo. Para um computador mais lento, use **Graphics → Low**; isso reduz a resolução do Canvas sem modificar o passo da física. A configuração de referência é Samsung Chromebook 3, 2 GB, 1366×768; não houve medição nesse aparelho.
+Arco, corda, flecha e rodinha de recarga são desenhados no **Canvas**. A mira gira em 360° e pode ser ajustada durante a recarga; a rodinha se completa quando outro disparo fica disponível. Use Z + setas esquerda/direita no Jogador 1 e G + A/D no Jogador 2, ou as teclas configuradas. Todos os participantes online precisam deste pacote atualizado; versões anteriores não entendem as novas regras. Esta atualização conserva as regras Firebase já publicadas.
+
+Cinco skins básicas e cor configurável por humano. Áudio sintetizado localmente, com volume/mudo. Para um computador mais lento, use **Gráficos → Baixo**; isso reduz a resolução do Canvas sem modificar o passo da física. A configuração de referência é Samsung Chromebook 3, 2 GB, 1366×768; não houve medição nesse aparelho.
 
 ## Mapas e editor
 
@@ -55,20 +70,21 @@ Quem joga não precisa de Node. Para continuar o projeto, com Node instalado, ex
 
 ```sh
 node check-core.cjs
+node check-rules.cjs
 ```
 
-A checagem usa somente a biblioteca de física incluída e `assert` do Node: seis modos, cinco humanos, comandos de bots, oito participantes locais, rodadas, placar, pesado, colisões contínuas, geometria/juntas, estado reproduzível e editor lógico. Também valida todos os 26 mapas e sua preservação em JSON. `node check-lan.cjs` verifica o transporte e `node check-room.cjs` verifica a sala com ligações simuladas. `check-browser.cjs` é uma checagem opcional com Chrome e Playwright, que precisam estar disponíveis no ambiente de desenvolvimento. Quem joga só precisa extrair o ZIP e abrir o HTML.
+A checagem usa somente a biblioteca de física incluída e `assert` do Node: seis modos, cinco humanos, comandos de bots, oito participantes locais, rodadas, placar, pesado, colisões contínuas, geometria/juntas, estado reproduzível e editor lógico. Também valida todos os 26 mapas e sua preservação em JSON. `node check-online.cjs` verifica o transporte global e regras com uma fixture local, `node check-room.cjs` verifica a sala com ligações simuladas e `node check-pin.cjs` verifica os PINs. `check-browser.cjs` usa Chrome e Playwright com o Firebase real configurado e WebRTC desativado; cria e limpa dados de teste. Quem joga só extrai o ZIP configurado e abre o HTML.
 
-## LAN e futuro pela internet
+## Conexão pela internet
 
-`lan.js` usa um canal WebRTC confiável, com sinalização manual por códigos e sem servidores ICE/STUN/TURN. `lan-room.js` executa a física no navegador do anfitrião; os convidados enviam comandos e recebem estados para renderizar. O anfitrião escolhe os mapas; convidados não publicam. Entradas tardias assistem até a próxima partida. A perda de um participante da partida a encerra e devolve os restantes à sala; uma nova conexão exige novo convite. Sair da sala do anfitrião a encerra para todos. Esc abre a sala, sem pausar a física. O anfitrião deve manter a aba visível.
+`online.js` usa HTTPS e streaming SSE do Firebase como transporte entre navegadores. `pin.js` publica convites de uso único. `lan-room.js` conserva o controlador da sala, executando a física no navegador do anfitrião; os convidados enviam comandos e recebem estados para renderizar. Os nomes internos herdados não indicam uma restrição a LAN. O anfitrião escolhe os mapas; convidados não publicam. Entradas tardias assistem até a próxima partida. A perda de um participante da partida a encerra e devolve os restantes à sala; uma nova conexão exige novo PIN. Sair da sala do anfitrião a encerra para todos. Esc abre a sala, sem pausar a física. O anfitrião deve manter a aba visível.
 
-Há testes reais com duas sessões de Chrome neste PC, abrindo por `file://`, sem requisições externas. Isso não substitui um teste com dois aparelhos na sua rede. Wi-Fi de convidados, isolamento de clientes, firewall e políticas de navegador podem impedir WebRTC local.
+O transporte serializa lotes de mensagens em strings para preservar arrays e valores nulos no banco, limita filas/tamanhos, substitui estados e comandos antigos e encerra conexões que perdem a sequência ou deixam de enviar sinais de vida. Cada conexão possui um identificador aleatório de 128 bits e permissões separadas para anfitrião e convidado. A sessão dura até 45 minutos; confira os resultados e limites dos testes em `VERIFICACAO.md`.
 
-`core.js` funciona como script do navegador ou módulo CommonJS, sem DOM, Canvas, áudio ou relógio de parede. `BonkCore.create(map, {players, seed, roundsToWin})` devolve `step(inputs)`, `state()`, `snapshot()`, `restore(snapshot)` e `restartRound()`; inputs são comandos booleanos por ID de jogador e tick.
+`core.js` funciona como script do navegador ou módulo CommonJS, sem DOM, Canvas, áudio ou relógio de parede. `BonkCore.create(map, {players, seed, roundsToWin, rules})` devolve `step(inputs)`, `state()`, `snapshot()`, `restore(snapshot)` e `restartRound()`; inputs são comandos booleanos por ID de jogador e tick. `BonkCore.normalizeRules()` fornece padrões e valida os quatro ajustes; `options-ui.js` compartilha seus controles entre local e online.
 
-Para uma futura versão pública pela internet, um servidor JavaScript pode executar esse núcleo a 60 ticks/s. Outro caminho é um serviço de nuvem para salas/mapas e conexão entre navegadores. Esta entrega implementa apenas a LAN. Snapshots versão 2 guardam o checkpoint da rodada e os comandos seguintes; restaurar reproduz a rodada para preservar o estado interno da engine. A repetibilidade foi testada no mesmo runtime, sem garantia entre plataformas.
+Snapshots versão 2 guardam o checkpoint da rodada e os comandos seguintes; restaurar reproduz a rodada para preservar o estado interno da engine. A repetibilidade foi testada no mesmo runtime, sem garantia entre plataformas.
 
-O cliente continua sendo `index.html`. A biblioteca pública pela internet, com publicação só pelo proprietário, fica para a etapa com um serviço compartilhado. Mapas da sala LAN são enviados pelo anfitrião e o editor mantém seu armazenamento e exportação locais.
+O cliente continua sendo `index.html`. A biblioteca pública pela internet, com publicação só pelo proprietário, fica para outra etapa. Mapas da sala são enviados pelo anfitrião e o editor mantém seu armazenamento e exportação locais. O transporte global usa a cota de transferência do Firebase e pode apresentar mais atraso que uma ligação direta.
 
 Biblioteca de física e fontes têm suas licenças incluídas; consulte `LICENCAS.md`.

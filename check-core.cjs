@@ -55,7 +55,7 @@ for (const mode of Core.MODES) {
 const arrowMap = map('deatharrows'); arrowMap.gravity = 0;
 arrowMap.spawns = [{ x: 200, y: 300 }, { x: 500, y: 300 }];
 const death = Core.create(arrowMap, { ...one, players: [{ id: 'p1' }, { id: 'p2' }], roundsToWin: 1 });
-run(death, 72, { p1: { special: true, right: true } });
+run(death, 72, { p1: { special: true } });
 assert(player(death.state()).charge > .99);
 assert(Math.abs(player(death.state()).x - 200) < .01, 'aiming must disable movement');
 death.step({ p1: {} });

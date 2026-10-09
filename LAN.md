@@ -1,47 +1,40 @@
-# Jogar em LAN pelo arquivo
+# Jogar em LAN com PIN
 
-O modo LAN conecta os navegadores diretamente por WebRTC. Cada pessoa abre seu próprio `index.html`, com todas as pastas do jogo extraídas. Não precisa instalar nada, criar conta, usar nuvem ou executar um servidor. SQLite, Firebase e Supabase não são necessários para essa etapa.
+**Documento histórico:** estas instruções se referem ao pacote LAN anterior. A distribuição atual usa conexão global pelo Firebase; siga [ONLINE.md](ONLINE.md).
 
-## Preparar
+Cada jogador abre seu próprio index.html, com a pasta inteira extraída. A configuração do Firebase é feita uma vez pelo proprietário; veja [FIREBASE.md](FIREBASE.md). Distribua o mesmo online-config.js para todos.
 
-1. Conectem os computadores ou Chromebooks à mesma rede local.
-2. Extraiam o ZIP inteiro e abram `index.html` no Chrome.
-3. Escolham apelido e aparência. Cada navegador participa com um jogador; o segundo jogador no mesmo teclado continua sendo uma opção do modo local.
+## Criar e entrar
 
-Evitem a rede Wi-Fi de convidados: ela pode impedir a comunicação entre os aparelhos. Redes com isolamento de clientes/AP também podem bloquear a conexão.
+1. Conectem os computadores à mesma rede local, com acesso à internet.
+2. O dono escolhe **Criar sala LAN**. Define humanos, bots, vitórias e mapa. Humanos + bots: até **5**, contando o dono.
+3. O dono clica **Gerar PIN** e envia os **8 números** ao amigo.
+4. O amigo escolhe **Entrar sala LAN**, digita o PIN e clica **Entrar na sala**. A resposta é automática.
+5. Quando o apelido aparecer em **Na sala**, a conexão terminou. Gere outro PIN para o próximo amigo.
+6. O dono clica **Iniciar partida**.
 
-## Criar e entrar na sala
-
-1. O anfitrião escolhe **Criar sala LAN** e define de **1 a 5 humanos**, incluindo ele, e de **0 a 4 bots**. A soma de humanos e bots deve ser no máximo **5**.
-2. O anfitrião escolhe o mapa, o modo e as opções da partida.
-3. Para cada convidado, o anfitrião gera um **Convite** individual e copia todo o texto.
-4. O convidado escolhe **Entrar sala LAN**, cola esse convite e gera sua **Resposta**.
-5. O convidado devolve todo o texto da resposta ao anfitrião. O anfitrião cola e confirma a resposta correspondente àquele convite.
-6. Repitam a troca para os outros jogadores. Quando aparecerem conectados na sala, o anfitrião inicia a partida.
-
-**Exemplo sem internet:** o anfitrião salva o convite de Ana em um arquivo `.txt` e entrega esse arquivo por pendrive ou pasta compartilhada da rede. Ana copia o texto para o jogo, salva a resposta em outro `.txt` e devolve o arquivo. O anfitrião confirma a resposta. Para Bruno, gera outro convite e repete o processo. Convite e resposta de pessoas diferentes não devem ser misturados. Os arquivos servem apenas para transportar o texto; não precisam ser importados pelo editor de mapas.
-
-Esse procedimento substitui um serviço que apresentaria os navegadores entre si. Não compartilhe o convite publicamente: entregue-o à pessoa que deve entrar.
+O PIN preserva zeros no começo, vale 5 minutos e conecta uma pessoa. Gere outro se expirar ou alguém já o tiver usado. Quem conhece o PIN pode tentar entrar; entregue a quem você quer convidar.
 
 ## Durante a partida
 
-- O anfitrião mantém a aba aberta e visível. Fechar ou sair da sala encerra a sessão; os convidados precisam de uma nova conexão para jogar novamente.
-- Cada convidado usa os controles do primeiro jogador, configuráveis em **Settings**. Clique fora dos campos de texto antes de jogar.
-- Quem entra depois do início assiste à partida em andamento e participa da próxima partida.
-- Se um participante da partida desconectar, a partida termina e os restantes voltam à sala. Para reconectar, o anfitrião gera outro convite. **Sala LAN · Esc** abre a sala sem pausar a física.
-- Os seis modos estão disponíveis: Classic, Arrows, Death Arrows, Grapple, VTOL e Football.
-- O anfitrião escolhe e envia o mapa para os convidados. Eles não precisam importar o mesmo mapa antes de entrar.
+- Cada navegador controla um humano com as teclas do Jogador 1, ajustáveis em Settings.
+- O dono mantém a aba aberta e visível; sair ou fechá-la encerra a sala.
+- Esc abre a sala sem pausar a física.
+- Entradas durante uma partida assistem e participam da próxima.
+- Se um participante desconectar, a partida termina e os outros voltam à sala. Para reconectar, peça outro PIN.
+- O anfitrião escolhe os mapas. Incluídos e criados no editor são transmitidos para os convidados.
+- Classic, Arrows, Death Arrows, Grapple, VTOL e Football estão disponíveis.
+- O modo local permite dois humanos no mesmo teclado e bots, sem internet.
 
-Mapas incluídos ou criados pelo anfitrião podem ser usados na sala. Convidados não publicam mapas. A biblioteca pública acessível pela internet fica para uma próxima etapa; a LAN não cria esse serviço.
+## Internet e rede
 
-## Se não conectar
+O Firebase apresenta os navegadores usando os dados do convite/resposta. Não executa a física nem recebe os comandos da partida. O jogo usa WebRTC direto, sem servidores STUN/TURN; entrar apenas com PIN **não libera automaticamente partidas entre redes diferentes**.
 
-Confira se os dois aparelhos estão na mesma rede, se a rede permite comunicação entre clientes e se cada resposta corresponde ao convite correto. Se uma tentativa foi cancelada, gere um novo convite e refaça a troca.
+Wi-Fi de convidados, isolamento entre clientes, firewall e políticas do navegador podem impedir a conexão. Não desative o firewall inteiro. Se encontrar o PIN mas não conectar, confira a LAN e gere outro convite.
 
-A conexão usa WebRTC sem servidores ICE/STUN/TURN externos. Isso atende à proposta de LAN sem nuvem, mas pode falhar por isolamento do Wi-Fi, firewall ou políticas do navegador/rede. Em uma rede administrada, peça ao responsável uma liberação específica para o Chrome/WebRTC. Não desative o firewall inteiro.
+Sem internet, novas conexões por PIN não funcionam. Uma partida já conectada pode continuar pela LAN; perder a conexão com o dono exige reconectar. Não existe lista pública de salas, chat, amigos ou biblioteca de mapas publicada nesta versão.
 
-O uso por `file://` também depende das permissões e políticas do navegador. Atualizar o Chrome e testar em uma rede doméstica sem isolamento ajuda a identificar restrições do ambiente. Esta versão não oferece conexão entre redes pela internet.
+## Verificação
 
-## Limites da verificação
+Os testes automatizados verificaram o PIN com Firebase simulado e conexão WebRTC real entre duas sessões de Chrome neste PC, abrindo pelo arquivo. Ainda falta validar o seu projeto Firebase, dois aparelhos na rede e um Chromebook real. Veja VERIFICACAO.md.
 
-O fluxo foi testado com duas sessões de Chrome neste PC, abrindo por arquivo, incluindo partida, comandos e nova conexão. Isso não comprova uma partida em dois aparelhos, funcionamento em um Chromebook específico ou desempenho da sua rede. Consulte `VERIFICACAO.md` para os testes efetivamente realizados e o que ainda está pendente.
