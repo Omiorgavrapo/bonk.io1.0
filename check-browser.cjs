@@ -1,4 +1,4 @@
-/* Real-browser global check. Uses the configured Firebase project and no WebRTC. */
+/* Real-browser global check. BONK_QA_DIRECT=1 also tests WebRTC and automatic fallback. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -8,6 +8,7 @@ const configVM = require('node:vm'), configContext = { window: {} };
 configVM.runInNewContext(fs.readFileSync(require.resolve('./online-config.js'), 'utf8'), configContext);
 const config = configContext.window.BonkOnlineConfig;
 const identities = [], connections = new Map();
+const directMode = process.env.BONK_QA_DIRECT === '1';
 
 let playwright;
 try { playwright = require('playwright'); }
@@ -23,7 +24,7 @@ const executablePath = [
 assert(executablePath, 'Install Chrome/Chromium first; this check does not download a browser.');
 const qa = path.join(__dirname, '.qa');
 fs.mkdirSync(qa, { recursive: true });
-const fileUrl = pathToFileURL(path.join(__dirname, 'index.html')).href;
+const fileUrl = pathToFileURL(path.resolve(process.env.BONK_QA_SOURCE || path.join(__dirname, 'index.html'))).href;
 const errors = [], outsideRequests = [];
 let browser, host, guest;
 
@@ -36,10 +37,11 @@ async function pageFor(name) {
     outsideRequests.push(url);
     return route.abort();
   });
-  await context.addInitScript(name => {
+  await context.addInitScript(({ name, directMode }) => {
     localStorage.setItem('bonk-local-settings', JSON.stringify({ p1: { name }, volume: 0 }));
-    window.RTCPeerConnection = undefined; // A successful game must use only the HTTPS relay.
-  }, name);
+    if (!directMode) window.RTCPeerConnection = undefined;
+    else { const Native = window.RTCPeerConnection; window.RTCPeerConnection = class extends Native { constructor(...args) { super(...args); (window.__qaPeers ||= []).push(this); } }; }
+  }, { name, directMode });
   const page = await context.newPage();
   page.on('response', async response => {
     const url = response.url();
@@ -51,7 +53,16 @@ async function pageFor(name) {
   page.setDefaultTimeout(20000);
   await page.goto(fileUrl);
   await page.waitForFunction(() => typeof BonkRoom !== 'undefined');
-  await page.evaluate(config => { window.BonkOnlineConfig = Object.freeze(config); }, config);
+  await page.evaluate(config => {
+    window.BonkOnlineConfig = Object.freeze(config);
+    const original = BonkOnline.create;
+    window.__qaHoldStates = false; window.__qaBufferedStates = [];
+    window.__qaReleaseStates = () => { __qaHoldStates = false; const held = __qaBufferedStates.splice(0); held.forEach(item => item.callback(item.link, item.message)); };
+    window.BonkOnline = { ...BonkOnline, create: options => original({ ...options, onMessage: (link, message) => {
+      if (__qaHoldStates && message.type === 'state') __qaBufferedStates.push({ link, message, callback: options.onMessage });
+      else options.onMessage(link, message);
+    } }) };
+  }, config);
   return page;
 }
 async function screenshot(page, name) {
@@ -70,6 +81,7 @@ async function handshake() {
   await guest.locator('#lanOfferInput').fill(offer);
   await guest.locator('#lanJoin').click();
   await Promise.all([connected(host), connected(guest)]);
+  if (directMode) await Promise.all([host, guest].map(page => page.waitForFunction(() => BonkRoom.transport() === 'Direta', undefined, { timeout: 35000 })));
 }
 async function running(page) {
   await page.waitForFunction(() => {
@@ -155,7 +167,6 @@ async function toastAfter(page, before) {
     }, remote.id);
     await Promise.all([screenshot(host, 'lan-host-game'), screenshot(guest, 'lan-guest-game')]);
     console.log('PASS: five participants, synchronized round/ticks, guest keyboard reaches host physics and key release clears input.');
-
     const beforeDisconnect = await host.locator('#toast').textContent();
     await guest.context().close();
     console.log('PASS: guest disconnect gives feedback: ' + await toastAfter(host, beforeDisconnect));
@@ -177,20 +188,67 @@ async function toastAfter(page, before) {
     await host.locator('#online-gravity').fill('0'); await host.locator('#online-gravity').dispatchEvent('change');
     await guest.locator('[data-action="lan-join"]').click(); await handshake();
     await host.locator('#lanStart').click(); await Promise.all([running(host), running(guest)]);
+    // Measure stationary aiming so a bot cannot kill the subject during a slow relay sample.
+    await guest.keyboard.down('KeyZ');
+    await host.waitForFunction(() => BonkRoom.state().players.find(p => p.name === 'Guest QA').controls.special);
+    const samples = [];
+    for (let i = 0; i < 8; i++) {
+      const key = i % 2 ? 'ArrowRight' : 'ArrowLeft', control = i % 2 ? 'right' : 'left', at = Date.now();
+      await guest.keyboard.down(key);
+      await host.waitForFunction(control => BonkRoom.state().players.find(p => p.name === 'Guest QA').controls[control], control);
+      const hostMs = Date.now() - at;
+      await guest.waitForFunction(control => BonkRoom.state().players.find(p => p.name === 'Guest QA').controls[control], control);
+      samples.push({ hostMs, feedbackMs: Date.now() - at });
+      await guest.keyboard.up(key);
+      await Promise.all([host, guest].map(page => page.waitForFunction(control => !BonkRoom.state().players.find(p => p.name === 'Guest QA').controls[control], control)));
+    }
+    const feedbackTimes = samples.map(s => s.feedbackMs).sort((a,b) => a-b);
+    const metrics = { mode: process.env.BONK_QA_LABEL || (directMode ? 'direct' : 'relay'), samples, medianFeedbackMs: (feedbackTimes[3] + feedbackTimes[4]) / 2 };
+    fs.writeFileSync(path.join(qa, 'latency-' + metrics.mode + '.json'), JSON.stringify(metrics, null, 2));
+    console.log('MEASURED: ' + JSON.stringify(metrics));
+    await guest.keyboard.up('KeyZ');
+    await host.waitForFunction(() => !BonkRoom.state().players.find(p => p.name === 'Guest QA').controls.special);
+    await guest.evaluate(() => {
+      window.__qaHoldStates = true;
+      window.__qaPredictionBefore = BonkRoom.state();
+    });
+    await guest.keyboard.down('ArrowRight');
+    await guest.waitForFunction(() => {
+      const p = BonkRoom.state().players.find(p => p.id === BonkRoom.playerId());
+      const before = __qaPredictionBefore.players.find(p => p.id === BonkRoom.playerId());
+      return p.predicted && p.x > before.x + 2;
+    }, undefined, { timeout: 2000 });
+    assert.equal(await guest.evaluate(() => BonkRoom.state().tick), await guest.evaluate(() => __qaPredictionBefore.tick), 'Local movement must work while all new host states are held');
+    await guest.keyboard.up('ArrowRight');
+    await guest.evaluate(() => __qaReleaseStates());
+    await host.waitForFunction(() => !BonkRoom.state().players.find(p => p.name === 'Guest QA').controls.right);
+    console.log('PASS: guest disc moves with the real keyboard while authoritative host snapshots are deliberately withheld.');
     await guest.keyboard.down('KeyZ'); await guest.keyboard.down('ArrowRight');
-    const aimTick = (await host.evaluate(() => BonkRoom.state())).tick;
-    await host.waitForFunction(tick => BonkRoom.state().tick > tick + 110, aimTick);
+    await host.waitForFunction(() => BonkRoom.state().players.find(p => p.name === 'Guest QA').charge > .95);
     assert((await host.evaluate(() => BonkRoom.state().players.find(p => p.name === 'Guest QA'))).charge > .95, 'Guest keyboard must charge a shot');
     await guest.keyboard.up('ArrowRight');
     await Promise.all([screenshot(host, 'online-bow-host'), screenshot(guest, 'online-bow-guest')]);
+    await guest.evaluate(() => { __qaHoldStates = true; __qaPredictionBefore = BonkRoom.state(); });
     await guest.keyboard.up('KeyZ');
+    await guest.waitForFunction(() => BonkRoom.state().projectiles.some(a => a.owner === BonkRoom.playerId() && a.predicted));
+    assert.equal(await guest.evaluate(() => BonkRoom.state().tick), await guest.evaluate(() => __qaPredictionBefore.tick), 'A speculative shot must draw before its host confirmation');
+    await guest.evaluate(() => __qaReleaseStates());
     await Promise.all([host, guest].map(page => page.waitForFunction(() => BonkRoom.state().players.find(p => p.name === 'Guest QA').cooldown > 0)));
     await Promise.all([screenshot(host, 'online-reload-host'), screenshot(guest, 'online-reload-guest')]);
-    console.log('PASS: guest arrows controls, full-charge release, Canvas bow and synchronized reload indicator through real Firebase.');
+    console.log('PASS: immediate speculative shot before host confirmation; guest arrows controls, full-charge release, Canvas bow and synchronized reload indicator through real Firebase.');
+    if (directMode) {
+      await guest.evaluate(() => __qaPeers.forEach(peer => peer.close()));
+      await Promise.all([host, guest].map(page => page.waitForFunction(() => BonkRoom.transport() === 'Via banco')));
+      assert(await guest.evaluate(() => BonkRoom.active()), 'Direct failure must retain the room');
+      await guest.keyboard.down('ArrowRight');
+      await host.waitForFunction(() => BonkRoom.state().players.find(p => p.name === 'Guest QA').controls.right);
+      await guest.keyboard.up('ArrowRight');
+      console.log('PASS: closing real WebRTC returns to Firebase automatically and guest controls still reach the host.');
+    }
     assert.deepEqual(errors, [], 'Uncaught browser errors are fatal');
     assert.deepEqual(outsideRequests, [], 'The game must not request external services');
     console.log('PASS: no uncaught browser errors or unexpected external page requests. Screenshots: ' + qa);
-    console.log('LIMIT: Both peers ran on this PC with WebRTC disabled and real Firebase. Different physical devices and Chromebook remain unverified.');
+    console.log('LIMIT: Both peers ran on this PC with real Firebase, direct mode=' + directMode + '. Different physical devices and Chromebook remain unverified.');
   } catch (error) {
     await Promise.allSettled([screenshot(host, 'lan-host-failure'), screenshot(guest, 'lan-guest-failure')]);
     console.error('FAIL: ' + error.stack);

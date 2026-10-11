@@ -59,7 +59,7 @@ function client(name) {
     return elements.get(id);
   }
   const context = { document: { getElementById: element }, window: { addEventListener() {} },
-    performance: { now: () => now }, RTCPeerConnection: function () {}, BonkCore: Core, BonkMaps: Maps, setTimeout, clearTimeout,
+    performance: { now: () => now }, RTCPeerConnection: function () {}, BonkCore: Core, BonkPrediction: require('./prediction.js'), BonkMaps: Maps, setTimeout, clearTimeout,
     BonkOptions: { mount(container, prefix, change) { container.changeRules = change; return { set(value, disabled) { container.rules = copy(value); container.rulesDisabled = disabled; } }; } },
     BonkPIN: { create: signalling, parse(value) { assert.match(value, /^\d{8}$/); return value; } },
     BonkOnline: { create(callbacks) { const link = createLink(callbacks); links.push(link); return link; } } };
@@ -98,6 +98,8 @@ async function main() {
   assert.equal(host.element('lanHumans').value, 5, 'Invalid configuration must retain all existing players');
   assert(one.room.active() && two.room.active());
   host.room.start(); pump();
+  const packedStart = host.links[0].sent.findLast(value => value.type === 'start');
+  assert(packedStart.state.bodies.every(body => Object.keys(body).sort().join(',') === 'angle,id,spin,vx,vy,x,y'), 'Repeated map definitions must be omitted from live packets');
   for (const c of [host, one, two]) assert.equal(c.room.state().players.length, 3);
   for (const c of [host, one, two]) { assert.deepEqual(c.room.state().rules, rules); assert(c.room.state().players.every(p => p.radius === 24)); }
   assert.equal(host.element('lanStart').disabled, true);
@@ -138,21 +140,35 @@ async function main() {
   assert.equal(full.players.length, 5); assert.equal(full.humans + full.bots, 5);
 
   const start = host.links[0].sent.findLast(value => value.type === 'start');
-  const angleBefore = copy(host.room.state()); delete angleBefore.map;
-  angleBefore.players.find(p => p.id === 'g1').aim = 3.05;
-  angleBefore.players.find(p => p.id === 'g1').cooldown = .9;
-  angleBefore.projectiles = [{ id: 'rotation-check', x: 200, y: 300, angle: 3.05 }];
-  host.links[0].send({ type: 'state', match: start.match, seq: 9000, state: angleBefore }); pump();
-  const angleAfter = copy(angleBefore); angleAfter.players.find(p => p.id === 'g1').aim = -3.05;
-  angleAfter.players.find(p => p.id === 'g1').cooldown = .1; angleAfter.projectiles[0].angle = -3.05;
+  const angleBefore = copy(host.links[0].sent.findLast(value => value.type === 'state').state);
+  angleBefore.tick += 6;
+  angleBefore.players.find(p => p.id === 'h1').aim = 3.05;
+  angleBefore.players.find(p => p.id === 'h1').cooldown = .9;
+  angleBefore.projectileSerial = 1;
+  angleBefore.projectiles = [{ id: 'arrow1', owner: 'h1', x: 200, y: 300, angle: 3.05, vx: 200, vy: 0, spin: 0, age: 1, charge: .5 }];
+  host.links[0].send({ type: 'state', match: start.match, seq: 9000, state: angleBefore }); pump(); now += 100;
+  const angleAfter = copy(angleBefore); angleAfter.tick += 6; angleAfter.players.find(p => p.id === 'h1').aim = -3.05;
+  angleAfter.players.find(p => p.id === 'h1').cooldown = .1; angleAfter.projectiles[0].angle = -3.05;
   host.links[0].send({ type: 'state', match: start.match, seq: 9001, state: angleAfter }); pump(); now += 50;
   const smooth = one.room.state();
-  assert(Math.abs(smooth.players.find(p => p.id === 'g1').aim - Math.PI) < 1e-6, 'Guest aim must cross the angle boundary without reversing');
+  assert(Math.abs(smooth.players.find(p => p.id === 'h1').aim - Math.PI) < 1e-6, 'Remote aim must cross the angle boundary without reversing');
   assert(Math.abs(smooth.projectiles[0].angle - Math.PI) < 1e-6, 'Guest projectile must not spin backward at the angle boundary');
-  assert(Math.abs(smooth.players.find(p => p.id === 'g1').cooldown - .5) < 1e-6, 'Guest cooldown ring must interpolate smoothly');
-  angleAfter.players.find(p => p.id === 'g1').cooldown = .9;
+  assert(Math.abs(smooth.players.find(p => p.id === 'h1').cooldown - .5) < 1e-6, 'Remote cooldown ring must interpolate smoothly');
+  angleAfter.players.find(p => p.id === 'h1').cooldown = .9;
   host.links[0].send({ type: 'state', match: start.match, seq: 9002, state: angleAfter }); pump();
-  assert.equal(one.room.state().players.find(p => p.id === 'g1').cooldown, .9, 'A new reload must appear immediately');
+  assert.equal(one.room.state().players.find(p => p.id === 'h1').cooldown, .9, 'A new reload must appear immediately');
+  const jitter = copy(angleAfter);
+  for (const [index, interval] of [20, 85, 30, 170, 45].entries()) {
+    const beforePacket = one.room.state().players.find(p => p.id === 'h1');
+    jitter.tick += 3; jitter.players.find(p => p.id === 'h1').x += 25;
+    host.links[0].send({ type: 'state', match: start.match, seq: 9010 + index, state: copy(jitter) }); pump();
+    const afterPacket = one.room.state().players.find(p => p.id === 'h1');
+    assert.equal(afterPacket.x, beforePacket.x, 'An early/late packet must not jump directly to the previous raw snapshot');
+    now += interval;
+  }
+  const inputCount = one.links.at(-1).sent.length;
+  one.room.update(.001, { left: true }); pump();
+  assert(one.links.at(-1).sent.length > inputCount && one.links.at(-1).sent.at(-1).type === 'input', 'Changed controls must be sent on the first frame');
   const forged = copy(host.room.state()); delete forged.map;
   forged.scores.g1 = '</b><img src=x onerror=alert(1)>';
   host.links[0].send({ type: 'state', match: start.match, seq: 999999, state: forged }); pump();

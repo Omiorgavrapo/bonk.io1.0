@@ -3,8 +3,15 @@
   'use strict';
   var options, room = null, guest = null, pending = null, peers = [], current = null, previous = null, receivedAt = 0, localGame = null, accumulator = 0, sendClock = 0, inputClock = 0, sequence = 0, lastSequence = -1, match = 0, nextCommands = {};
   var actions = ['left', 'right', 'up', 'down', 'heavy', 'special'], rulesUI;
+  var smoothTime = 100, lastInputMask = -1, prediction = null;
   function $(id) { return document.getElementById(id); }
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
+  function wireState(value) {
+    var state = Object.assign({}, value); delete state.map; state.events = [];
+    state.bodies = value.bodies.map(function (body) { return { id: body.id, x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy, spin: body.spin }; });
+    state.players = value.players.map(function (p) { var peer = peers.find(function (item) { return item.id === p.id; }); return Object.assign({}, p, { inputSeq: peer && peer.sequence != null ? peer.sequence : -1, inputTicks: peer && peer.inputTicks || 0 }); });
+    return copy(state);
+  }
   function escape(value) { return String(value).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function fail(error) { options.onError(error.message || String(error)); }
   function profile(raw, id) {
@@ -44,7 +51,7 @@
     $('lanReturn').hidden = !current;
   }
   function lobby(reason) {
-    current = previous = localGame = null; accumulator = 0;
+    current = previous = localGame = prediction = null; accumulator = 0;
     if (room && room.host) { broadcast({ type: 'lobby', reason: reason || '' }); publishRoom(); }
     options.onLobby(); if (reason) options.onError(reason);
   }
@@ -79,14 +86,14 @@
               if (players().length >= room.humans) { connection.send({ type: 'closed', reason: 'Sala sem vagas humanas.' }); connection.close(); return; }
               peer.player = profile(message.profile, peer.id); peer.lastInput = performance.now(); peer.commands = {}; pending = null;
               if (!send(peer, { type: 'welcome', id: peer.id })) return; publishRoom();
-              if (current) { var state = copy(current); delete state.map; if (!send(peer, { type: 'start', match: match, map: current.map, state: state })) return; }
+              if (current && !send(peer, { type: 'start', match: match, map: current.map, state: wireState(current) })) return;
               $('lanStatus').textContent = peer.player.name + (players().length < room.humans ? ' entrou! Gere outro PIN para o próximo jogador.' : ' entrou! Pode iniciar a partida.');
               $('lanOffer').value = ''; $('lanCopy').disabled = true;
             } else if (message.type === 'input' && peer.player) {
               if (!Number.isInteger(message.mask) || message.mask < 0 || message.mask > 63 || !Number.isSafeInteger(message.seq) || message.seq < 0 || message.seq <= (peer.sequence == null ? -1 : peer.sequence)) return;
               var now = performance.now();
               if (now - (peer.lastMessage || 0) < 10) return;
-              peer.lastMessage = now; peer.lastInput = now; peer.sequence = message.seq;
+              peer.lastMessage = now; peer.lastInput = now; peer.sequence = message.seq; peer.inputTicks = 0;
               peer.commands = {}; actions.forEach(function (a, i) { peer.commands[a] = !!(message.mask & (1 << i)); });
             }
           } else receive(message);
@@ -108,7 +115,7 @@
     });
     [1, 2].forEach(function (team) { if (!Number.isInteger(state.teamScores[team]) || state.teamScores[team] < 0 || state.teamScores[team] > 20) throw Error('Placar de times online inválido.'); });
     if (!map || state.bodies.length !== map.bodies.length) throw Error('Geometria online inválida.');
-    state.bodies = state.bodies.map(function (body, i) { if (body.id !== map.bodies[i].id) throw Error('Corpo online inválido.'); return Object.assign({}, map.bodies[i], { x: body.x, y: body.y, angle: body.angle }); });
+    state.bodies = state.bodies.map(function (body, i) { if (body.id !== map.bodies[i].id) throw Error('Corpo online inválido.'); return Object.assign({}, map.bodies[i], { x: body.x, y: body.y, angle: body.angle, vx: body.vx, vy: body.vy, spin: body.spin }); });
     if (state.ball) state.ball.r = BonkCore.PARAMS.ballRadius;
     if (['countdown', 'playing', 'roundover', 'matchover'].indexOf(state.phase) < 0 || BonkCore.MODES.indexOf(state.mode) < 0) throw Error('Partida online inválida.');
     return state;
@@ -126,13 +133,17 @@
     } else if (message.type === 'start') {
       var map = BonkMaps.validate(message.map);
       if (!Number.isSafeInteger(message.match) || message.match < 1) throw Error('Partida online inválida.');
-      var state = validState(message.state, map); if (state.mode !== map.mode) throw Error('Modo online inválido.');
-      state.map = map; match = message.match; lastSequence = -1; current = state; previous = null; receivedAt = performance.now(); options.onGame(state);
+      var initial = validState(message.state, map); if (initial.mode !== map.mode) throw Error('Modo online inválido.');
+      initial.map = map; match = message.match; lastSequence = -1; current = initial; previous = null; receivedAt = performance.now(); smoothTime = 100;
+      prediction = BonkPrediction.create(initial, room.id); options.onGame(initial);
     } else if (message.type === 'state' && current && message.match === match) {
       if (!Number.isSafeInteger(message.seq) || message.seq <= lastSequence) return;
       var next = validState(message.state, current.map); next.map = current.map;
       if (next.tick < current.tick || next.mode !== current.mode) return;
-      previous = current; current = next; receivedAt = performance.now(); lastSequence = message.seq;
+      var displayed = state();
+      smoothTime = Math.max(50, Math.min(250, (next.tick - current.tick) * BonkCore.PARAMS.dt * 1000));
+      if (prediction) prediction.reconcile(next);
+      previous = displayed; current = next; receivedAt = performance.now(); lastSequence = message.seq;
     } else if (message.type === 'events' && message.match === match && Array.isArray(message.events) && message.events.length <= 30) {
       message.events.forEach(function (e) { if (e && ['hit', 'shoot', 'goal', 'eliminate', 'round', 'start', 'grapple'].indexOf(e.type) >= 0) options.onEvent(e.type, Number.isFinite(e.intensity) ? Math.max(0, Math.min(1, e.intensity)) : 1); });
     } else if (message.type === 'lobby') { lobby(String(message.reason || '').slice(0, 160)); }
@@ -141,13 +152,13 @@
   function end(reason) {
     if (room && room.host) broadcast({ type: 'closed', reason: reason || 'O dono encerrou a sala.' });
     var closing = peers.slice(); if (guest) closing.push(guest); if (pending && closing.indexOf(pending) < 0) closing.push(pending);
-    room = guest = pending = current = previous = localGame = null; peers = []; accumulator = inputClock = sendClock = 0; nextCommands = {};
+    room = guest = pending = current = previous = localGame = prediction = null; peers = []; accumulator = inputClock = sendClock = 0; nextCommands = {};
     closing.forEach(function (p) { if (p.signal) p.signal.close(); clearTimeout(p.connectTimer); p.link.close(); }); options.onExit(); if (reason) options.onError(reason);
   }
   function begin(owner) {
     if (room) end();
     if (typeof BonkOnline === 'undefined') { fail(Error('Extraia a pasta inteira do jogo atualizado, incluindo online.js.')); return false; }
-    room = { host: owner, id: owner ? 'h1' : null }; sequence = 0; lastSequence = -1;
+    room = { host: owner, id: owner ? 'h1' : null }; sequence = 0; lastSequence = -1; lastInputMask = -1;
     $('lanHost').hidden = !owner; $('lanGuest').hidden = owner; $('lanDetails').hidden = !owner; $('lanStart').hidden = !owner;
     $('lanTitle').textContent = owner ? 'Sua sala' : 'Entre na sala';
     $('lanStatus').textContent = owner ? 'Sala criada. Convide um amigo para começar.' : 'Pronto para receber seu PIN.';
@@ -231,7 +242,8 @@
       for (var i = 0; i < room.bots; i++) roster.push({ id: 'b' + (i + 1), name: 'Bot ' + (i + 1), color: colors[i], skin: 'face', team: i % 2 + 1, bot: true });
       var map = BonkMaps.validate(room.map); localGame = BonkCore.create(map, { players: roster, seed: Date.now() >>> 0, roundsToWin: room.rounds, rules: room.rules });
       match++; current = localGame.state(); accumulator = sendClock = 0; nextCommands = {};
-      var state = copy(current); delete state.map; if (!broadcast({ type: 'start', match: match, map: map, state: state })) { lobby('A partida não começou. Reduza o mapa ou refaça a conexão.'); return; } publishRoom(); if (current) options.onGame(current);
+      peers.forEach(function (p) { p.inputTicks = 0; });
+      if (!broadcast({ type: 'start', match: match, map: map, state: wireState(current) })) { lobby('A partida não começou. Reduza o mapa ou refaça a conexão.'); return; } publishRoom(); if (current) options.onGame(current);
     } catch (error) { fail(error); }
   }
   function update(delta, commands) {
@@ -242,19 +254,22 @@
       if (!localGame || current.phase === 'matchover') return;
       accumulator += Math.min(.15, delta); sendClock += delta;
       while (accumulator >= BonkCore.PARAMS.dt) {
-        var inputs = { h1: nextCommands }; peers.forEach(function (p) { if (p.player) inputs[p.id] = now - p.lastInput < 1200 ? p.commands : {}; });
+        var inputs = { h1: nextCommands }; peers.forEach(function (p) { if (p.player) { inputs[p.id] = now - p.lastInput < 1200 ? p.commands : {}; if (current.phase === 'playing' && now - p.lastInput < 1200) p.inputTicks = (p.inputTicks || 0) + 1; } });
         localGame.step(inputs); current = localGame.state();
         if (current.events.length) { broadcast({ type: 'events', match: match, events: current.events }); current.events.forEach(function (e) { options.onEvent(e.type, e.intensity); }); }
         accumulator -= BonkCore.PARAMS.dt;
       }
-      if (sendClock >= .1 || current.phase === 'matchover') { sendClock = 0; var state = copy(current); delete state.map; state.events = []; broadcast({ type: 'state', match: match, seq: sequence++, state: state }); if (current.phase === 'matchover') publishRoom(); }
-    } else if (guest && guest.link.status === 'open' && room.id && inputClock >= .1) {
-      inputClock = 0; var mask = 0; actions.forEach(function (a, i) { if (nextCommands[a]) mask |= 1 << i; }); guest.link.send({ type: 'input', seq: sequence++, mask: mask });
+      if (sendClock >= .05 || current.phase === 'matchover') { sendClock %= .05; broadcast({ type: 'state', match: match, seq: sequence++, state: wireState(current) }); if (current.phase === 'matchover') publishRoom(); }
+    } else if (guest && guest.link.status === 'open' && room.id) {
+      var mask = 0; actions.forEach(function (a, i) { if (nextCommands[a]) mask |= 1 << i; });
+      if (mask !== lastInputMask || inputClock >= (guest.link.fast ? .05 : .2)) { inputClock = 0; lastInputMask = mask; guest.link.send({ type: 'input', seq: sequence++, mask: mask }); }
+      if (prediction) prediction.update(delta, nextCommands, sequence - 1);
     }
   }
   function state() {
-    if (!current || room && room.host || !previous || previous.round !== current.round || previous.phase !== current.phase) return current;
-    var alpha = Math.max(0, Math.min(1, (performance.now() - receivedAt) / 100)), view = Object.assign({}, current);
+    if (!current || room && room.host) return current;
+    if (!previous || previous.round !== current.round || previous.phase !== current.phase) return prediction ? prediction.state(current) : current;
+    var alpha = Math.max(0, Math.min(1, (performance.now() - receivedAt) / smoothTime)), view = Object.assign({}, current);
     function angle(from, to) { return from + Math.atan2(Math.sin(to - from), Math.cos(to - from)) * alpha; }
     ['players', 'bodies', 'projectiles'].forEach(function (key) {
       var older = {}; previous[key].forEach(function (p) { older[p.id] = p; });
@@ -266,7 +281,7 @@
       });
     });
     if (previous.ball && current.ball) view.ball = Object.assign({}, current.ball, { x: previous.ball.x + (current.ball.x - previous.ball.x) * alpha, y: previous.ball.y + (current.ball.y - previous.ball.y) * alpha });
-    return view;
+    return prediction ? prediction.state(view) : view;
   }
   function init(value) {
     options = value;
@@ -287,5 +302,6 @@
     $('lanOffer').onclick = function () { this.select(); };
     window.addEventListener('beforeunload', function () { if (room) end(); });
   }
-  global.BonkRoom = { init: init, host: host, join: join, start: start, update: update, state: state, active: function () { return !!room; }, isHost: function () { return !!room && room.host; }, playerId: function () { return room && room.id; }, showLobby: function () { if (room) options.onLobby(); }, end: end };
+  function transport() { if (!room) return ''; if (!room.host) return guest && guest.link.fast ? 'Direta' : 'Via banco'; return peers.some(function (p) { return p.player && !p.link.fast; }) ? 'Via banco' : 'Direta'; }
+  global.BonkRoom = { init: init, host: host, join: join, start: start, update: update, state: state, transport: transport, active: function () { return !!room; }, isHost: function () { return !!room && room.host; }, playerId: function () { return room && room.id; }, showLobby: function () { if (room) options.onLobby(); }, end: end };
 }(typeof globalThis !== 'undefined' ? globalThis : this));

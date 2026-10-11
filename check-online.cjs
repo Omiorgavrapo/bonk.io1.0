@@ -85,6 +85,7 @@ async function main() {
   try {
     const offer = await host.link.offer();
     assert.throws(() => host.context.BonkOnline.decode('BONK-LAN1.old', 'offer'));
+    assert.throws(() => host.context.BonkOnline.decode(offer.replace('BONK-ONLINE4.', 'BONK-ONLINE3.'), 'offer'), 'Older clients cannot skip input acknowledgement fields');
     assert.throws(() => host.context.BonkOnline.decode(offer, 'answer'));
     const answer = await guest.link.answer(offer); await host.link.accept(answer);
     await until(() => guest.link.status === 'open');

@@ -1,4 +1,4 @@
-/* Direct LAN connection: manual signalling, one reliable WebRTC data channel. */
+/* WebRTC data channel. The global mode is negotiated automatically through the online relay. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(root);
   else root.BonkLAN = factory(root);
@@ -8,7 +8,7 @@
   var HEADER = 20, FRAME = 16384, CHUNK = FRAME - HEADER, MAX_BUFFER = 2 * MAX_DATA;
   var MAGIC = 0x424c4e31, LABEL = 'bonk-lan', PROTOCOL = 'bonk-lan/1';
 
-  function description(value, expected) {
+  function description(value, expected, globalMode) {
     if (!value || typeof value !== 'object' || value.v !== 1 || value.type !== expected ||
         Object.keys(value).sort().join(',') !== 'sdp,type,v' || typeof value.sdp !== 'string' ||
         value.sdp.length > 70000 || !/^v=0\r?\n/.test(value.sdp) ||
@@ -16,20 +16,20 @@
         !/^a=ice-ufrag:\S+/m.test(value.sdp) || !/^a=ice-pwd:\S+/m.test(value.sdp) ||
         !/^a=fingerprint:\S+ \S+/m.test(value.sdp)) throw new Error('Código LAN inválido.');
     var candidates = value.sdp.match(/^a=candidate:[^\r\n]+/gm) || [];
-    if (!candidates.length || candidates.some(function (line) { return !/ typ host(?: |$)/.test(line); })) {
+    if (!candidates.length || candidates.some(function (line) { return !(globalMode ? / typ (host|srflx|relay)(?: |$)/ : / typ host(?: |$)/).test(line); })) {
       throw new Error('Não foi encontrado um endereço local. Verifique a conexão com a rede LAN.');
     }
     return { type: value.type, sdp: value.sdp };
   }
-  function encode(value) {
+  function encode(value, globalMode) {
     var envelope = { v: 1, type: value.type, sdp: value.sdp };
     if (value.type !== 'offer' && value.type !== 'answer') throw new Error('Tipo de código LAN inválido.');
-    description(envelope, value.type);
+    description(envelope, value.type, globalMode);
     var code = PREFIX + root.btoa(JSON.stringify(envelope));
     if (code.length > MAX_CODE) throw new Error('Código LAN grande demais.');
     return code;
   }
-  function decode(code, expected) {
+  function decode(code, expected, globalMode) {
     if (expected !== 'offer' && expected !== 'answer') throw new Error('Tipo de código LAN inválido.');
     if (typeof code !== 'string' || code.length > MAX_CODE) throw new Error('Código LAN inválido ou grande demais.');
     code = code.trim();
@@ -40,7 +40,7 @@
     var envelope;
     try { envelope = JSON.parse(root.atob(data)); }
     catch (_) { throw new Error('Código LAN inválido.'); }
-    return description(envelope, expected);
+    return description(envelope, expected, globalMode);
   }
   function checksum(bytes) {
     var n = 2166136261;
@@ -53,7 +53,8 @@
     options = options || {};
     var PeerConnection = options.PeerConnection || root.RTCPeerConnection;
     if (typeof PeerConnection !== 'function') throw new Error('Este navegador não oferece WebRTC. Use Chrome, Edge ou Firefox atualizado.');
-    var pc = new PeerConnection({ iceServers: [] });
+    // shortcut: STUN cannot cross every firewall; add TURN if the Firebase fallback is too slow on those networks.
+    var pc = new PeerConnection({ iceServers: options.global ? options.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }] : [] });
     var channel = null, state = 'new', role = null, accepted = false;
     var sendId = 1, receiveId = 1, incoming = null, incomingTimer = null;
     var cancelIce = null, disconnectTimer = null;
@@ -127,7 +128,7 @@
       if (state === 'closed') throw new Error('Conexão LAN encerrada.');
       await waitIce();
       if (state === 'closed') throw new Error('Conexão LAN encerrada.');
-      return encode(pc.localDescription);
+      return encode(pc.localDescription, options.global);
     }
     async function offer() {
       if (state !== 'new') throw new Error('Esta conexão LAN já foi iniciada.');
@@ -138,14 +139,14 @@
       } catch (error) { fail(error); throw error; }
     }
     async function answer(code) {
-      var remote = decode(code, 'offer');
+      var remote = decode(code, 'offer', options.global);
       if (state !== 'new') throw new Error('Esta conexão LAN já foi iniciada.');
       role = 'answer'; state = 'connecting';
       try { await pc.setRemoteDescription(remote); return await localCode('answer'); }
       catch (error) { fail(error); throw error; }
     }
     async function accept(code) {
-      var remote = decode(code, 'answer');
+      var remote = decode(code, 'answer', options.global);
       if (role !== 'offer' || state !== 'connecting' || accepted) throw new Error('Esta conexão não está aguardando uma resposta LAN.');
       accepted = true;
       try { await pc.setRemoteDescription(remote); }
@@ -153,6 +154,7 @@
     }
     function send(object) {
       if (state !== 'open' || !channel || channel.readyState !== 'open') return false;
+      if (options.global && channel.bufferedAmount > 65536) return false;
       var bytes;
       try {
         if (!object || typeof object !== 'object' || Array.isArray(object)) throw new Error('A mensagem LAN deve ser um objeto.');

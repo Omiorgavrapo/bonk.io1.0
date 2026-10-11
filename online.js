@@ -1,24 +1,25 @@
-/* HTTPS relay: the host simulates the game; Firebase carries packets across networks. */
+/* Firebase invites/control/fallback; WebRTC carries live state/input when available. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(root);
   else root.BonkOnline = factory(root);
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
-  var PREFIX = 'BONK-ONLINE3.', LIMIT = 1048576, LIFETIME = 2700000;
+  var PREFIX = 'BONK-ONLINE4.', LIMIT = 1048576, LIFETIME = 2700000;
   function decode(code, type) {
     var value;
     try { if (typeof code !== 'string' || code.length > 1000 || code.indexOf(PREFIX) !== 0) throw Error(); value = JSON.parse(root.atob(code.slice(PREFIX.length))); } catch (_) { throw Error('Convite incompatível. Todos precisam da versão online atualizada.'); }
-    if (!value || Object.keys(value).sort().join(',') !== 'id,type,uid,v' || value.v !== 3 || value.type !== type ||
+    if (!value || Object.keys(value).sort().join(',') !== 'id,type,uid,v' || value.v !== 4 || value.type !== type ||
         !/^[a-f0-9]{32}$/.test(value.id) || typeof value.uid !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.uid)) throw Error('Convite online inválido.');
     return value;
   }
-  function encode(id, uid, type) { return PREFIX + root.btoa(JSON.stringify({ v: 3, id: id, uid: uid, type: type })); }
+  function encode(id, uid, type) { return PREFIX + root.btoa(JSON.stringify({ v: 4, id: id, uid: uid, type: type })); }
   function random() { var bytes = new Uint8Array(16); root.crypto.getRandomValues(bytes); return Array.from(bytes, function (n) { return n.toString(16).padStart(2, '0'); }).join(''); }
   function create(options) {
     options = options || {};
     var auth = root.BonkPIN.create(root.BonkOnlineConfig), user, id, owner = false, status = 'new', requests = new Set(), stream, tick, lifetime;
     var cache = null, queue = [], incoming = [], writing = false, sent = 0, received = 0, heardAt = Date.now(), sentAt = 0;
-    var link = { offer: offer, answer: answer, accept: accept, send: send, close: close, get status() { return status; } };
+    var direct = null, directTimer, directTried = false;
+    var link = { offer: offer, answer: answer, accept: accept, send: send, close: close, get status() { return status; }, get fast() { return !!direct && direct.status === 'open'; } };
     function emit(name, value) { if (options[name]) options[name](link, value); }
     function fail(error) { if (status === 'closed') return; try { emit('onError', error instanceof Error ? error : Error(String(error))); } finally { close(); } }
     function url(path) { return user.databaseURL + '/connections/' + id + path + '.json?auth=' + encodeURIComponent(user.token); }
@@ -35,6 +36,7 @@
     function close(remote) {
       if (status === 'closed') return;
       status = 'closed'; clearInterval(tick); clearTimeout(lifetime); if (stream) stream.abort();
+      stopDirect();
       requests.forEach(function (controller) { controller.abort(); }); queue = []; incoming = []; auth.close();
       if (id && user && (owner || !remote)) write(owner ? '' : '/left', owner ? 'DELETE' : 'PUT', owner ? undefined : true, true).catch(function () {});
       emit('onClose');
@@ -43,6 +45,35 @@
       if (status !== 'connecting') return;
       status = 'open'; heardAt = Date.now(); emit('onOpen');
       var waiting = incoming; incoming = []; waiting.forEach(function (message) { if (status === 'open') emit('onMessage', message); });
+      if (owner) startDirect();
+    }
+    function stopDirect() { clearTimeout(directTimer); var old = direct; direct = null; if (old) old.close(); }
+    function makeDirect() {
+      if (directTried || !root.BonkLAN || typeof root.RTCPeerConnection !== 'function') return false;
+      directTried = true;
+      try {
+        direct = root.BonkLAN.create({ global: true, iceServers: root.BonkOnlineConfig && root.BonkOnlineConfig.iceServers,
+          onOpen: function () { clearTimeout(directTimer); queue = queue.filter(function (m) { return m.type !== 'state' && m.type !== 'input'; }); },
+          onMessage: function (_, message) { if (status === 'open' && (message.type === 'state' || message.type === 'input')) emit('onMessage', message); },
+          onError: stopDirect, onClose: function () { direct = null; }
+        });
+        directTimer = setTimeout(stopDirect, 25000); return true;
+      } catch (_) { stopDirect(); return false; }
+    }
+    async function startDirect() {
+      if (!makeDirect()) return;
+      var attempt = direct;
+      try { var code = await attempt.offer(); if (status === 'open' && direct === attempt) send({ type: '_direct', kind: 'offer', code: code }); }
+      catch (_) { if (direct === attempt) stopDirect(); }
+    }
+    async function directSignal(message) {
+      if (typeof message.code !== 'string' || message.code.length > 100000) return;
+      try {
+        if (!owner && message.kind === 'offer' && makeDirect()) {
+          var attempt = direct, code = await attempt.answer(message.code);
+          if (status === 'open' && direct === attempt) send({ type: '_direct', kind: 'answer', code: code });
+        } else if (owner && message.kind === 'answer' && direct && direct.status === 'connecting') await direct.accept(message.code);
+      } catch (_) { stopDirect(); }
     }
     function mail(value) {
       if (!value || value.seq === received) return;
@@ -50,7 +81,7 @@
       var messages = JSON.parse(value.payload);
       if (!Array.isArray(messages) || messages.length > 256 || messages.some(function (message) { return !message || typeof message !== 'object' || Array.isArray(message); })) throw Error('Mensagem online inválida.');
       received = value.seq; heardAt = Date.now();
-      messages.forEach(function (message) { if (status === 'open') emit('onMessage', message); else if (status === 'connecting') incoming.push(message); });
+      messages.forEach(function (message) { if (message.type === '_direct') { if (status === 'open') directSignal(message); } else if (status === 'open') emit('onMessage', message); else if (status === 'connecting') incoming.push(message); });
     }
     function apply(path, value) {
       var keys = path.split('/').filter(Boolean);
@@ -99,7 +130,7 @@
         if (status !== 'open') return;
         if (Date.now() - heardAt > 15000) { fail(Error('A conexão com o outro jogador caiu. Peça um novo PIN.')); return; }
         if (!writing && (queue.length || Date.now() - sentAt >= 2000)) flush();
-      }, 100);
+      }, 50);
       // The anonymous token lasts an hour. A bounded session avoids silently changing player identity.
       lifetime = setTimeout(function () { fail(Error('A sessão de 45 minutos terminou. Crie outra sala para continuar.')); }, LIFETIME);
     }
@@ -128,16 +159,17 @@
       try {
         if (!message || typeof message !== 'object' || Array.isArray(message)) throw Error('Mensagem online inválida.');
         var copy = JSON.parse(JSON.stringify(message));
+        if (link.fast && (copy.type === 'state' || copy.type === 'input')) { direct.send(copy); return true; }
         if (copy.type === 'state' || copy.type === 'input') queue = queue.filter(function (item) { return item.type !== copy.type; });
         if (queue.length >= 256 || JSON.stringify(queue.concat([copy])).length > LIMIT - 1024) return false;
-        queue.push(copy); return true;
+        queue.push(copy); if (copy.type === 'input' && !writing) flush(); return true;
       } catch (error) { emit('onError', error); return false; }
     }
     async function flush() {
       writing = true; var messages = queue; queue = []; sentAt = Date.now();
       try { await write(owner ? '/hostMail' : '/guestMail', 'PUT', { seq: ++sent, payload: JSON.stringify(messages) }); }
       catch (error) { if (status !== 'closed') fail(error); }
-      finally { writing = false; }
+      finally { writing = false; if (status === 'open' && queue.length) flush(); }
     }
     return link;
   }

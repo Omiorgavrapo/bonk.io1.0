@@ -43,6 +43,7 @@
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
   function number(x, fallback) { return typeof x === 'number' && isFinite(x) ? x : fallback; }
   function pixels(v) { return { x: v.x * scale, y: v.y * scale }; }
+  function motion(body) { var v = pixels(body.getLinearVelocity()); return { vx: v.x, vy: v.y, spin: body.getAngularVelocity() }; }
   function encode(i) { var n = 0; keys.forEach(function (k, j) { if (i && i[k]) n |= 1 << j; }); return n; }
   function decode(n) { var i = {}; keys.forEach(function (k, j) { i[k] = !!(n & (1 << j)); }); return i; }
   function angleDifference(a, b) { return Math.atan2(Math.sin(a - b), Math.cos(a - b)); }
@@ -318,7 +319,7 @@
       p.botInput = i; return i;
     }
     function finish(result) {
-      if (phase !== 'playing') return;
+      if (phase !== 'playing' || opts.prediction) return;
       winner = result || null; phase = 'roundover'; timer = PARAMS.roundOverTicks;
       if (mode === 'football' && result) {
         var team = Number(String(result).slice(-1)); teamScores[team]++;
@@ -381,22 +382,23 @@
       if (roundTicks >= number(opts.roundTimeTicks, PARAMS.roundTimeTicks)) finish(null);
     }
     function state() {
-      return { tick: tick, phase: phase, countdown: phase === 'countdown' ? Math.ceil(timer * dt) : 0, mode: mode, map: map, rules: clone(opts.rules), round: round, winner: winner, matchWinner: matchWinner,
+      return { tick: tick, phase: phase, countdown: phase === 'countdown' ? Math.ceil(timer * dt) : 0, mode: mode, map: map, rules: clone(opts.rules), round: round, winner: winner, matchWinner: matchWinner, projectileSerial: arrowId,
         timeRemaining: Math.ceil(Math.max(0, number(opts.roundTimeTicks, PARAMS.roundTimeTicks) - roundTicks) * dt),
-        players: players.map(function (p) { var pos = pixels(p.body.getPosition()), g = p.grapple && pixels(p.grapple.body.getWorldPoint(p.grapple.local)); return { id: p.id, name: p.name, color: p.color, skin: p.skin, team: p.team, bot: p.bot, alive: p.alive, x: pos.x, y: pos.y, angle: p.body.getAngle() * 180 / Math.PI, radius: radius, heavy: p.heavy, heavyStrength: p.heavyStrength, aim: p.aim, charge: p.charge, cooldown: p.cooldown / PARAMS.arrowCooldown, grapple: g, controls: clone(p.prev) }; }),
-        bodies: map.bodies.map(function (b, i) { var body = mapBodies[b.id || 'body' + i]; if (!body) return clone(b); var pos = pixels(body.getPosition()); return Object.assign({}, b, pos, { angle: body.getAngle() * 180 / Math.PI }); }),
-        projectiles: arrows.map(function (a) { var pos = pixels(a.body.getPosition()); return { id: a.id, x: pos.x, y: pos.y, angle: a.body.getAngle(), length: 31, owner: a.owner }; }),
-        ball: ball ? Object.assign(pixels(ball.getPosition()), { r: PARAMS.ballRadius, angle: ball.getAngle() * 180 / Math.PI }) : null, scores: clone(scores), teamScores: clone(teamScores), events: clone(events) };
+        players: players.map(function (p) { var pos = pixels(p.body.getPosition()), g = p.grapple && Object.assign(pixels(p.grapple.body.getWorldPoint(p.grapple.local)), { bodyId: p.grapple.body.getUserData().id, localX: p.grapple.local.x, localY: p.grapple.local.y, length: p.grapple.joint.getMaxLength() }); return Object.assign({ id: p.id, name: p.name, color: p.color, skin: p.skin, team: p.team, bot: p.bot, alive: p.alive, x: pos.x, y: pos.y, angle: p.body.getAngle() * 180 / Math.PI, radius: radius, heavy: p.heavy, heavyStrength: p.heavyStrength, aim: p.aim, charge: p.charge, cooldown: p.cooldown / PARAMS.arrowCooldown, jumpCooldown: p.jumpCooldown, kickCooldown: p.kickCooldown, grappleCooldown: p.grappleCooldown, grapple: g, controls: clone(p.prev) }, motion(p.body)); }),
+        bodies: map.bodies.map(function (b, i) { var body = mapBodies[b.id || 'body' + i]; if (!body) return Object.assign({}, b, { vx: 0, vy: 0, spin: 0 }); var pos = pixels(body.getPosition()); return Object.assign({}, b, pos, { angle: body.getAngle() * 180 / Math.PI }, motion(body)); }),
+        projectiles: arrows.map(function (a) { var pos = pixels(a.body.getPosition()); return Object.assign({ id: a.id, x: pos.x, y: pos.y, angle: a.body.getAngle(), length: 31, owner: a.owner, age: a.age, charge: a.charge }, motion(a.body)); }),
+        ball: ball ? Object.assign(pixels(ball.getPosition()), { r: PARAMS.ballRadius, angle: ball.getAngle() * 180 / Math.PI }, motion(ball)) : null, scores: clone(scores), teamScores: clone(teamScores), events: clone(events) };
     }
     function step(inputs) {
       if (phase === 'matchover') { events = []; return; }
       inputs = inputs || {}; events = []; tick++;
-      var commands = roster.map(function (p) { return p.bot ? 0 : encode(inputs[p.id]); }); history.push(commands);
+      if (opts.prediction && phase !== 'playing') return;
+      var commands = roster.map(function (p) { return p.bot && !opts.prediction ? 0 : encode(inputs[p.id]); }); if (!opts.prediction) history.push(commands);
       if (phase === 'countdown') { if (--timer <= 0) { phase = 'playing'; emit('start'); } return; }
       if (phase === 'roundover') { if (--timer <= 0) { round++; build(); } return; }
       roundTicks++;
       (map.bodies || []).forEach(function (def, index) { var b = mapBodies[def.id || 'body' + index]; if (b && def.force && b.isDynamic()) b.applyForceToCenter(V(number(def.force.x, 0) / scale * b.getMass(), number(def.force.y, 0) / scale * b.getMass()), true); });
-      players.forEach(function (p, i) { control(p, p.bot ? bot(p) : decode(commands[i])); });
+      players.forEach(function (p, i) { control(p, p.bot && !opts.prediction ? bot(p) : decode(commands[i])); });
       world.step(dt, 8, 4); process();
     }
     function restartRound() {
@@ -426,8 +428,45 @@
       });
       return state();
     }
+    function correct(s) {
+      if (!opts.prediction || !s || s.mode !== mode || !Number.isSafeInteger(s.tick) || s.tick < 0 || !Number.isSafeInteger(s.round) || s.round < 1 || ['countdown', 'playing', 'roundover', 'matchover'].indexOf(s.phase) < 0 || !Array.isArray(s.players) || s.players.length !== roster.length || !Array.isArray(s.bodies) || s.bodies.length !== map.bodies.length || !Array.isArray(s.projectiles) || s.projectiles.length > 300 || JSON.stringify(normalizeRules(s.rules)) !== JSON.stringify(opts.rules)) throw Error('Invalid prediction state.');
+      function validMotion(b) { if (!b || ['x', 'y', 'angle', 'vx', 'vy', 'spin'].some(function (k) { return !Number.isFinite(b[k]) || Math.abs(b[k]) > 1e7; })) throw Error('Invalid prediction motion.'); }
+      var seen = {};
+      s.players.forEach(function (p) {
+        validMotion(p); if (!playerById[p.id] || seen[p.id]) throw Error('Invalid prediction player.'); seen[p.id] = true;
+        ['aim', 'charge', 'cooldown', 'heavyStrength', 'jumpCooldown', 'kickCooldown', 'grappleCooldown'].forEach(function (k) { if (!Number.isFinite(p[k]) || Math.abs(p[k]) > 10000) throw Error('Invalid prediction controls.'); });
+        if (p.grapple && (!mapBodies[p.grapple.bodyId] || ['localX', 'localY', 'length'].some(function (k) { return !Number.isFinite(p.grapple[k]) || Math.abs(p.grapple[k]) > 10000; }) || p.grapple.length <= 0)) throw Error('Invalid prediction grapple.');
+      });
+      s.bodies.forEach(function (b, i) { validMotion(b); if (b.id !== (map.bodies[i].id || 'body' + i)) throw Error('Invalid prediction body.'); });
+      seen = {};
+      s.projectiles.forEach(function (a) { validMotion(a); if (!/^arrow[1-9][0-9]*$/.test(a.id) || seen[a.id] || !playerById[a.owner] || !Number.isSafeInteger(a.age) || a.age < 0 || a.age > 900 || !Number.isFinite(a.charge) || a.charge < 0 || a.charge > 1) throw Error('Invalid prediction projectile.'); seen[a.id] = true; });
+      if (!!s.ball !== !!ball || !Number.isSafeInteger(s.projectileSerial) || s.projectileSerial < 0) throw Error('Invalid prediction ball/projectile counter.'); if (s.ball) validMotion(s.ball);
+      if (s.round !== round) { round = s.round; build(); }
+      tick = s.tick; phase = s.phase; winner = s.winner; matchWinner = s.matchWinner; scores = clone(s.scores); teamScores = clone(s.teamScores); events = []; pending = []; history = [];
+      function place(body, value, radians) { body.setTransform(V(value.x / scale, value.y / scale), radians ? value.angle : value.angle * Math.PI / 180); body.setLinearVelocity(V(value.vx / scale, value.vy / scale)); body.setAngularVelocity(value.spin); body.setAwake(true); }
+      s.bodies.forEach(function (b) { if (mapBodies[b.id]) place(mapBodies[b.id], b); });
+      players.forEach(breakGrapple);
+      s.players.forEach(function (value) {
+        var p = playerById[value.id]; p.alive = value.alive; p.body.setActive(p.alive); place(p.body, value);
+        p.heavy = value.heavy; p.heavyStrength = value.heavyStrength; p.aim = value.aim; p.charge = value.charge; p.cooldown = Math.round(value.cooldown * PARAMS.arrowCooldown); p.jumpCooldown = value.jumpCooldown; p.kickCooldown = value.kickCooldown; p.grappleCooldown = value.grappleCooldown; p.prev = decode(encode(value.controls));
+        var density = PARAMS.density * (p.heavy ? 1 + (PARAMS.heavyMass - 1) * (.2 + .8 * p.heavyStrength) : 1); p.fixture.setDensity(density); p.body.resetMassData();
+        if (value.grapple && p.alive) { var g = value.grapple, anchor = V(g.localX, g.localY), target = mapBodies[g.bodyId]; p.grapple = { body: target, local: anchor, joint: world.createJoint(pl.RopeJoint({ localAnchorA: V(0, 0), localAnchorB: anchor, maxLength: g.length, collideConnected: true }, p.body, target)) }; }
+      });
+      arrows.forEach(function (a) { world.destroyBody(a.body); }); arrows = []; arrowId = s.projectileSerial;
+      s.projectiles.forEach(function (a) {
+        var owner = playerById[a.owner], body = world.createDynamicBody({ bullet: true, gravityScale: .22 }); place(body, a, true);
+        body.createFixture(pl.Box(.52, .055), { density: .75, friction: .1, restitution: 0, filterGroupIndex: -(owner.index + 1) }); body.setUserData({ kind: 'arrow', id: a.id, owner: a.owner });
+        arrows.push({ id: a.id, body: body, owner: a.owner, age: a.age, charge: a.charge }); arrowId = Math.max(arrowId, Number(a.id.slice(5)));
+      });
+      if (ball) place(ball, s.ball);
+      // shortcut: live correction rebuilds contact estimates, not the host's hidden warm-start impulses; smooth residual errors instead of claiming exact rollback.
+      world.step(0); pending = []; events = [];
+      return state();
+    }
     build();
-    return { step: step, state: state, snapshot: snapshot, restore: restore, restartRound: restartRound };
+    var game = { step: step, state: state, snapshot: snapshot, restore: restore, restartRound: restartRound };
+    if (opts.prediction) game.correct = correct;
+    return game;
   }
   return { PARAMS: PARAMS, MODES: MODES, RULES: RULES, normalizeRules: normalizeRules, create: create };
 }));

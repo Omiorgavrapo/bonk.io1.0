@@ -1,10 +1,10 @@
 # Ativar os convites por PIN
 
-**Pacote global configurado em 9 de outubro de 2026:** o arquivo `online-config.js` já aponta para o projeto `bonk-98544`. O proprietário ativou a entrada anônima e publicou as regras novas de convites e canais de partida. A partida completa passou no Chrome usando Firebase real e WebRTC desativado. Para jogar, siga [ONLINE.md](ONLINE.md) ou vá à etapa 5; a configuração abaixo fica como referência.
+**Pacote global configurado:** o arquivo `online-config.js` já aponta para o projeto `bonk-98544`. O proprietário ativou a entrada anônima e publicou as regras de convites e canais de partida. As regras continuam iguais na atualização de 10 de outubro com conexão direta e previsão no cliente. Os caminhos direto e de reserva passaram no Chrome com Firebase real. Para jogar, siga [ONLINE.md](ONLINE.md) ou vá à etapa 5; a configuração abaixo fica como referência.
 
 Você configura isto uma vez. Depois, todos abrem o HTML normalmente e só compartilham os 8 números do convite. Cada PIN conecta **uma pessoa**, vale **5 minutos** e deixa de funcionar depois do uso ou quando o dono gera outro.
 
-O Firebase transmite convites, mapas, comandos e estados da partida por HTTPS. A física roda no aparelho do dono. Os jogadores podem estar em redes diferentes; o jogo não usa uma conexão WebRTC direta e não exige configurar STUN/TURN ou portas do roteador.
+O Firebase transmite convites, mapas e controle da sala por HTTPS. O movimento tenta automaticamente uma conexão WebRTC global; se ela não funcionar, comandos e estados continuam pelo banco. A física autoritativa roda no aparelho do dono, com previsão no navegador do convidado para responder às teclas antes da confirmação. Os jogadores podem estar em redes diferentes. Um STUN do Google já está configurado; não é necessário abrir portas para usar a reserva. Redes restritas podem continuar com atraso; veja os limites em [ONLINE.md](ONLINE.md).
 
 ## 1. Criar o projeto
 
@@ -56,7 +56,7 @@ A configuração Web é feita para estar no cliente; o acesso ao banco depende d
 4. Tente reutilizar o PIN em outro navegador: deve ser recusado. Gere um novo, espere 5 minutos e confirme que o PIN expirado também é recusado.
 5. No console do Firebase, confira que não é possível ler `/invites` inteiro usando o simulador de regras com um usuário anônimo. Confira também que outro usuário não consegue apagar/substituir um convite alheio.
 
-O teste `check-browser.cjs` usa Chrome com Firebase real e WebRTC desativado: conexão por PIN, cinco participantes, estados, controles, desconexão e reconexão passaram. **Os dois navegadores de teste rodaram no mesmo PC; ainda falta uma partida em aparelhos diferentes e em Chromebook.** A fixture local de regras não é o emulador oficial; veja `VERIFICACAO.md`.
+O teste `check-browser.cjs` usa Chrome com Firebase real. Por padrão verifica a reserva com WebRTC desativado; `BONK_QA_DIRECT=1` também verifica a conexão direta. PIN, cinco participantes, estados, controles, previsão com estados do host retidos, desconexão e reconexão passaram. **Os dois navegadores de teste rodaram no mesmo PC; ainda falta uma partida em aparelhos diferentes e em Chromebook.** A fixture local de regras não é o emulador oficial; veja `VERIFICACAO.md`.
 
 ## Se não funcionar
 

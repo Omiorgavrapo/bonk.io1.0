@@ -179,4 +179,5 @@ async function main() {
   assert.equal(timed.b.link.status, 'closed'); assert.match(timed.b.errors[0].message, /incompleta/);
   console.log('LAN checks passed: signalling, reliable round trips, limits, backpressure, malformed frames, failure cleanup and deadline.');
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { PeerConnection, peers };

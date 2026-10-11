@@ -1,6 +1,6 @@
 # Jogar pela internet
 
-Este pacote já está configurado para o Firebase do proprietário. Ele pode ser aberto pelo arquivo `index.html`, sem instalar um servidor. A partida usa HTTPS pelo Firebase e não precisa de conexão direta entre os aparelhos: os jogadores podem estar em redes Wi-Fi diferentes.
+Este pacote já está configurado para o Firebase do proprietário. Ele pode ser aberto pelo arquivo `index.html`, sem instalar um servidor. Os jogadores podem estar em redes diferentes. O PIN usa Firebase e a partida tenta uma conexão direta global por WebRTC, automaticamente. Se a rede não permitir, continua pelo Firebase.
 
 ## Criar e entrar
 
@@ -13,6 +13,10 @@ Este pacote já está configurado para o Firebase do proprietário. Ele pode ser
 
 Cada navegador controla um humano. Aparência e apelido são definidos no próprio jogo, sem cadastro. O dono escolhe e envia o mapa. Entradas durante uma partida assistem até a próxima.
 
+Todos devem atualizar a pasta inteira para receber a correção do convidado. O PIN continua com oito dígitos; não existe um novo modo LAN nem códigos longos para copiar. A conexão direta pode levar alguns segundos para ser preparada enquanto a sala já funciona pelo banco.
+
+Esta versão também prevê a física no navegador do convidado. Movimento, mira, disparo e chute no Football respondem localmente antes da confirmação do dono. Distribua a pasta inteira, incluindo `prediction.js`; clientes de versões anteriores não podem entrar nesta versão.
+
 ## Durante a partida
 
 O dono mantém o jogo aberto e a aba visível. Esc abre a sala sem pausar a simulação. Sair do dono encerra a sala; a saída ou perda de conexão de um participante da partida devolve os restantes à sala. Gere outro PIN para reconectar.
@@ -23,7 +27,7 @@ As conexões duram até 45 minutos a partir da criação do convite. Ao atingir 
 
 O proprietário precisa publicar **o `firebase.rules.json` desta versão** em Firebase → Realtime Database → Regras. As regras antigas liberavam somente convites; as novas também permitem os canais privados da partida. Veja [FIREBASE.md](FIREBASE.md).
 
-Se você já publicou as regras da atualização global de 9 de outubro, não precisa publicá-las novamente para as novas opções e a mira: o arquivo de regras não mudou nesta atualização.
+Se você já publicou as regras da atualização global de 9 de outubro, não precisa publicá-las novamente para as novas opções, a mira ou a correção do atraso do convidado: o arquivo de regras não mudou nesta atualização.
 
 - **Atualize as regras:** copie o arquivo novo inteiro, substitua as regras no console e clique em Publicar.
 - **PIN inválido ou usado:** confirme que todos receberam o novo ZIP e gere outro PIN.
@@ -32,12 +36,22 @@ Se você já publicou as regras da atualização global de 9 de outubro, não pr
 
 ## Desempenho e cota
 
-O anfitrião executa a física a 60 passos por segundo. Estados e comandos são enviados até dez vezes por segundo, com estados antigos substituídos na fila e interpolação no convidado. O tempo de resposta depende do caminho entre cada aparelho e o Firebase; pode ser maior que numa conexão direta.
+O anfitrião executa a física a 60 passos por segundo. Estados são enviados até vinte vezes por segundo. Uma mudança de tecla é enviada no primeiro frame, com atualizações periódicas para manter os comandos. Os pacotes enviam só a posição/rotação dos objetos do mapa, sem repetir a geometria inteira.
 
-Os dados da partida contam na cota do Realtime Database. O projeto está no plano Spark; acompanhe a aba Uso do banco. Ao esgotar a cota, o online pode deixar de funcionar. A distribuição não altera seu plano nem ativa cobrança.
+O convidado suaviza a partir da posição que já estava desenhando, com duração ajustada ao intervalo dos estados. Um pacote que chega cedo não provoca o salto para a posição de outro snapshot. Estados antigos não se acumulam em filas de movimento.
+
+Para o próprio jogador, `prediction.js` executa a mesma física a 60 Hz e guarda os comandos ainda não confirmados. O estado do dono informa quais comandos já foram processados. O convidado aplica esse estado, descarta o trabalho confirmado e reaplica os comandos pendentes. Pequenas diferenças de posição da bolinha, dos seus tiros e da bola de Football convergem suavemente; mortes, placar, mudanças de rodada e correções grandes seguem o dono. Os outros jogadores continuam com interpolação dos estados recebidos.
+
+A previsão é uma estimativa: não conhece uma tecla futura do adversário nem todos os detalhes internos de colisão do dono. Um tiro desenhado imediatamente ainda depende da confirmação para causar um acerto. Após 1,5 segundo de comandos sem confirmações úteis, a previsão para de avançar até a rede voltar; isso evita acumular trabalho ou fingir uma partida independente durante uma queda. Ela disfarça a espera, mas não elimina o atraso real da rede.
+
+O rodapé mostra **Online · Direta** quando o movimento passa por WebRTC, ou **Online · Via banco** quando usa a reserva HTTPS. O Firebase continua transmitindo convites e controle da sala nos dois casos. Se a conexão direta cair, a reserva entra automaticamente; não precisa gerar outro PIN por causa dessa troca.
+
+Na conexão direta, um servidor STUN do Google ajuda a localizar os aparelhos em redes diferentes. Algumas redes bloqueiam a conexão direta; nesses casos, o caminho pelo Firebase ainda tem atraso. Para reduzir esse atraso também nessas redes, seria necessário um serviço TURN próprio ou contratado. Nenhum serviço pago foi ativado. Um desenvolvedor pode fornecer servidores ICE em `BonkOnlineConfig.iceServers`; a configuração atual usa STUN e conserva o banco como reserva.
+
+Os dados enviados pelo Firebase contam na cota do Realtime Database. Na conexão direta, só os convites e o controle da sala passam pelo banco; na reserva, ele carrega também os movimentos. O projeto está no plano Spark; acompanhe a aba Uso do banco. Ao esgotar a cota, o online pode deixar de funcionar. A distribuição não altera seu plano nem ativa cobrança.
 
 O canal conserva só o último lote de mensagens por direção, não um histórico infinito. Ao encerrar, o dono tenta apagar o canal. Se o navegador fechar antes da limpeza, as regras bloqueiam acesso após o prazo, mas pode ser necessário limpar registros expirados e usuários anônimos no console.
 
 PINs não são senhas fortes: quem receber um PIN ainda válido pode usá-lo. A listagem pública de salas, chat, amigos e biblioteca pública de mapas não fazem parte desta atualização. Antes de divulgar o banco em grande escala, é necessário limitar abuso e conferir a cota.
 
-Referências: [streaming HTTPS do Firebase](https://firebase.google.com/docs/database/rest/retrieve-data#section-streaming), [limites do banco](https://firebase.google.com/docs/database/usage/limits).
+Referências: [conexões WebRTC, STUN e TURN](https://webrtc.org/getting-started/peer-connections), [streaming HTTPS do Firebase](https://firebase.google.com/docs/database/rest/retrieve-data#section-streaming), [limites do banco](https://firebase.google.com/docs/database/usage/limits).
